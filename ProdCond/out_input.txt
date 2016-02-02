@@ -1,0 +1,168 @@
+********** Restaurant is openning now! We have 2 cooks, 4 tables **********
+
+---------------------Customers' view ---------------------
+Customer 1 coming at 20:
+	 seated table 1 at 20
+	 got all foods at 34 by Cook 2 started at 20 (Burgers are made at 30, Fries are made at 34)
+	 Customer 1 leave at 64
+Customer 2 coming at 30:
+	 seated table 2 at 30
+	 got all foods at 51 by Cook 1 started at 30 (Burgers are made at 51, Cokes are made at 31)
+	 Customer 2 leave at 81
+Customer 3 coming at 31:
+	 seated table 3 at 31
+	 got all foods at 64 by Cook 1 started at 51 (Burgers are made at 61, Fries are made at 64)
+	 Customer 3 leave at 94
+Customer 4 coming at 32:
+	 seated table 2 at 125
+	 got all foods at 139 by Cook 1 started at 126 (Burgers are made at 136, Fries are made at 139)
+	 Customer 4 leave at 169
+Customer 5 coming at 33:
+	 seated table 4 at 33
+	 got all foods at 75 by Cook 2 started at 34 (Burgers are made at 75, Cokes are made at 35)
+	 Customer 5 leave at 105
+Customer 6 coming at 60:
+	 seated table 1 at 64
+	 got all foods at 85 by Cook 1 started at 64 (Burgers are made at 85, Fries are made at 67)
+	 Customer 6 leave at 115
+Customer 7 coming at 70:
+	 seated table 4 at 105
+	 got all foods at 126 by Cook 1 started at 105 (Burgers are made at 126, Cokes are made at 106)
+	 Customer 7 leave at 156
+Customer 8 coming at 71:
+	 seated table 2 at 81
+	 got all foods at 95 by Cook 2 started at 81 (Burgers are made at 95, Fries are made at 84)
+	 Customer 8 leave at 125
+Customer 9 coming at 72:
+	 seated table 3 at 95
+	 got all foods at 111 by Cook 2 started at 95 (Burgers are made at 105, Fries are made at 111)
+	 Customer 9 leave at 141
+Customer 10 coming at 73:
+	 seated table 1 at 115
+	 got all foods at 146 by Cook 2 started at 115 (Burgers are made at 146, Cokes are made at 116)
+	 Customer 10 leave at 176
+
+---------------------Cooks' view ---------------------
+Cook 1: 
+	 Start processing order from Customer 2 at 30
+	 Making Coke from 30 to 31
+	 Making Burger from 31 to 36
+	 Making Burger from 36 to 41
+	 Making Burger from 41 to 46
+	 Making Burger from 46 to 51
+	 Order from Customer 2 is completed at 51
+	 Start processing order from Customer 3 at 51
+	 Making Burger from 51 to 56
+	 Making Burger from 56 to 61
+	 Making Fries from 61 to 64
+	 Order from Customer 3 is completed at 64
+	 Start processing order from Customer 6 at 64
+	 Making Fries from 64 to 67
+	 Making Burger from 75 to 80
+	 Making Burger from 80 to 85
+	 Order from Customer 6 is completed at 85
+	 Start processing order from Customer 7 at 105
+	 Making Coke from 105 to 106
+	 Making Burger from 106 to 111
+	 Making Burger from 111 to 116
+	 Making Burger from 116 to 121
+	 Making Burger from 121 to 126
+	 Order from Customer 7 is completed at 126
+	 Start processing order from Customer 4 at 126
+	 Making Burger from 126 to 131
+	 Making Burger from 131 to 136
+	 Making Fries from 136 to 139
+	 Order from Customer 4 is completed at 139
+
+Cook 2: 
+	 Start processing order from Customer 1 at 20
+	 Making Burger from 20 to 25
+	 Making Burger from 25 to 30
+	 Making Fries from 31 to 34
+	 Order from Customer 1 is completed at 34
+	 Start processing order from Customer 5 at 34
+	 Making Coke from 34 to 35
+	 Making Burger from 61 to 66
+	 Making Burger from 70 to 75
+	 Order from Customer 5 is completed at 75
+	 Start processing order from Customer 8 at 81
+	 Making Fries from 81 to 84
+	 Making Burger from 85 to 90
+	 Making Burger from 90 to 95
+	 Order from Customer 8 is completed at 95
+	 Start processing order from Customer 9 at 95
+	 Making Burger from 95 to 100
+	 Making Burger from 100 to 105
+	 Making Fries from 105 to 108
+	 Making Fries from 108 to 111
+	 Order from Customer 9 is completed at 111
+	 Start processing order from Customer 10 at 115
+	 Making Coke from 115 to 116
+	 Making Burger from 136 to 141
+	 Making Burger from 141 to 146
+	 Order from Customer 10 is completed at 146
+
+---------------------Machines' view ---------------------
+Burger Machine: 
+	 Working from 20 to 25
+	 Working from 25 to 30
+	 Working from 31 to 36
+	 Working from 36 to 41
+	 Working from 41 to 46
+	 Working from 46 to 51
+	 Working from 51 to 56
+	 Working from 56 to 61
+	 Working from 61 to 66
+	 Working from 70 to 75
+	 Working from 75 to 80
+	 Working from 80 to 85
+	 Working from 85 to 90
+	 Working from 90 to 95
+	 Working from 95 to 100
+	 Working from 100 to 105
+	 Working from 106 to 111
+	 Working from 111 to 116
+	 Working from 116 to 121
+	 Working from 121 to 126
+	 Working from 126 to 131
+	 Working from 131 to 136
+	 Working from 136 to 141
+	 Working from 141 to 146
+	 -----Made 24 burgers-----
+Fries Machine: 
+	 Working from 31 to 34
+	 Working from 61 to 64
+	 Working from 64 to 67
+	 Working from 81 to 84
+	 Working from 105 to 108
+	 Working from 108 to 111
+	 Working from 136 to 139
+	 -----Made 7 fries-----
+Coke Machine: 
+	 Working from 30 to 31
+	 Working from 34 to 35
+	 Working from 105 to 106
+	 Working from 115 to 116
+	 -----Made 4 cokes-----
+
+---------------------Tables' view ---------------------
+Table 1:
+	 Seated by Customer 1 from 20 to 64
+	 Seated by Customer 6 from 64 to 115
+	 Seated by Customer 10 from 115 to 176
+
+Table 2:
+	 Seated by Customer 2 from 30 to 81
+	 Seated by Customer 8 from 81 to 125
+	 Seated by Customer 4 from 125 to 169
+
+Table 3:
+	 Seated by Customer 3 from 31 to 94
+	 Seated by Customer 9 from 95 to 141
+
+Table 4:
+	 Seated by Customer 5 from 33 to 105
+	 Seated by Customer 7 from 105 to 156
+
+********** Restraurant is closed **********
+All customers are served and left after 176 minutes from openning
