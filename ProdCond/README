@@ -1,0 +1,46 @@
+CSE 6431 Spring 2015 - Advanced Operating System -  Programming Assignment
+Practice of synchronization primitives
+Author: Ching-Hsiang Chu
+Contact: chu.368@osu.edu
+
+-------------------------------
+Content
+1. Pre-requirement
+2. Compilation and installation
+3. Execution
+4. Note
+
+-------------------------------
+Pre-requirement
+-------------------------------
+The program is written by Java, please make sure you have installed Java Runtime Environment (JRE).
+This program has been tested in java version "1.7.0_67" and "1.7.0_72" on stdlinux. 
+You can download JRE from http://www.oracle.com/technetwork/java/javase/downloads/index.html
+
+Please try following commands to make sure you have installed JRE and configured correctly.
+
+> javac
+> java
+
+-------------------------------
+Compilation and installation
+-------------------------------
+
+Commands to complie the program:
+
+> javac Producer/*.java Consumer/*.java
+> jar cvfe Restaurant.jar Producer/Restaurant Producer/*.class Consumer/*.class
+
+After this, class files and one jar file will be created in the same directory.
+
+-------------------------------
+Execution
+-------------------------------
+After compilation, please use following commands to execute it. This is basically executing jar file.
+
+> java -jar Restaurant.jar.jar <input file>
+
+-------------------------------
+Note 
+-------------------------------
+
