@@ -1,0 +1,75 @@
+CSE 6341 - Foudation of Programing Language -  Lab 2
+Design and implementation of basic Lisp interpreter
+Author: Ching-Hsiang Chu
+Contac: chu.368@osu.edu
+-------------------------------
+Content
+1. Pre-requirement
+2. Compilation and installation
+3. Execution
+4. Uninstall
+
+-------------------------------
+Pre-requirement
+-------------------------------
+The source code is written by Java, please make sure you have installed Java Runtime Environment (JRE).
+This program has been tested in java version "1.7.0_67" and "1.7.0_72" on stdlinux. 
+You can download from http://www.oracle.com/technetwork/java/javase/downloads/index.html
+
+Please try following commands to make sure you have installed JRE and configured correctly.
+
+> javac
+> java
+
+-------------------------------
+Compilation and installation
+-------------------------------
+Please make sure you have following files in the same directory.
+
+- Lisp_interpreter.jar   (just in case anything goes wrong with compilation, if so, please try to run with this execute file)
+- Lisp_interpreter.java
+- Lisp_basic/Lisp_primitive.java
+- Lisp_basic/S_Exp.java
+- Makefile
+
+The default path for java used in Makefile is /class/software/local/jdk1.7.0_72/bin/ 
+If you prefer to use different version, please modify it manually.
+
+Commands to complie the program:
+
+> make
+> make install
+
+After this, class files and one jar file will be created in the same directory.
+
+-------------------------------
+Execution
+-------------------------------
+After compilation, please use following commands to execute it. This is basically executing jar file.
+
+> make run 
+
+Or you can run it by following command
+
+> java -jar Lisp_interpreter.jar
+
+-------------------------------
+Uninstall
+-------------------------------
+Simplly run
+
+> make clean
+
+All class and jar files will be deleted.
+
+-------------------------------
+Note 
+-------------------------------
+
+For the input string, please try not to type TAB or any other control characters. 
+Although this program have tried to deal with it, it might not good enough to capture all cases.
+
+The end symbol ('$' or '$$') must appear in the new line without any white space or other characters
+after it. Otherwise, it consideres a misuse of dollar sign, and an error will be thrown out.
+
+The List representation may not correct for some cases.

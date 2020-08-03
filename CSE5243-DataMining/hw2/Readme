@@ -1,0 +1,26 @@
+=========================
+Author: Ching-Hsiang Chu
+Email: chu.368@osu.edu
+=========================
+
+1. Make sure the R is installed in the system.
+
+2. Make sure the input datasets "Iris.csv", "Iris_Test.csv", 
+	"income_TEST_FINAL.csv" "income_TRAIN_FINAL.csv" 
+   are stored in the same directory as the source code I submitted.
+
+3. For the IRIS dataset, run
+
+/path/to/Rscripts testIRIS.r
+
+For the income dataset, run
+
+/path/to/Rscripts testIncome.r
+
+The corresponding .csv file will be created in the same directory.
+"iris_classification_l1" means the classification result of iris dataset
+by using L1 (city block distance) distance metric. Same meaning for other
+name of output file. 
+
+Note that the program will test all possible values of k,
+it might take few minuetes to finish. (shoud be less than 3 minutes)

@@ -1,0 +1,445 @@
+diff -Naru linux-2.6.9-default/arch/i386/kernel/entry.S linux-2.6.9-lab3/arch/i386/kernel/entry.S
+--- linux-2.6.9-default/arch/i386/kernel/entry.S	2004-10-18 17:53:44.000000000 -0400
++++ linux-2.6.9-lab3/arch/i386/kernel/entry.S	2017-10-10 06:24:30.000000000 -0400
+@@ -901,5 +901,7 @@
+ 	.long sys_mq_getsetattr
+ 	.long sys_ni_syscall		/* reserved for kexec */
+ 	.long sys_waitid
++        .long sys_FSsched               /*285*/
++        .long sys_enableProfiling       /*286*/
+ 
+ syscall_table_size=(.-sys_call_table)
+diff -Naru linux-2.6.9-default/include/asm-i386/unistd.h linux-2.6.9-lab3/include/asm-i386/unistd.h
+--- linux-2.6.9-default/include/asm-i386/unistd.h	2004-10-18 17:54:37.000000000 -0400
++++ linux-2.6.9-lab3/include/asm-i386/unistd.h	2017-10-10 06:26:20.000000000 -0400
+@@ -290,8 +290,10 @@
+ #define __NR_mq_getsetattr	(__NR_mq_open+5)
+ #define __NR_sys_kexec_load	283
+ #define __NR_waitid		284
++#define __NR_FSsched            285
++#define __NR_enableProfiling    286
+ 
+-#define NR_syscalls 285
++#define NR_syscalls 287
+ 
+ /* user-visible error numbers are in the range -1 - -124: see <asm-i386/errno.h> */
+ 
+diff -Naru linux-2.6.9-default/include/linux/sched.h linux-2.6.9-lab3/include/linux/sched.h
+--- linux-2.6.9-default/include/linux/sched.h	2004-10-18 17:53:13.000000000 -0400
++++ linux-2.6.9-lab3/include/linux/sched.h	2017-10-10 05:47:08.000000000 -0400
+@@ -126,6 +126,7 @@
+ #define SCHED_NORMAL		0
+ #define SCHED_FIFO		1
+ #define SCHED_RR		2
++#define SCHED_FS                3
+ 
+ struct sched_param {
+ 	int sched_priority;
+@@ -179,6 +180,13 @@
+ #define	MAX_SCHEDULE_TIMEOUT	LONG_MAX
+ extern signed long FASTCALL(schedule_timeout(signed long timeout));
+ asmlinkage void schedule(void);
++// [lab3 additions]
++
++extern unsigned int enableFS;
++extern void add_FS_process(uid_t uid);
++extern void decr_FS_process(uid_t uid);
++
++// [end lab3 additions]
+ 
+ struct namespace;
+ 
+diff -Naru linux-2.6.9-default/include/linux/syscalls.h linux-2.6.9-lab3/include/linux/syscalls.h
+--- linux-2.6.9-default/include/linux/syscalls.h	2004-10-18 17:55:36.000000000 -0400
++++ linux-2.6.9-lab3/include/linux/syscalls.h	2017-10-10 06:29:17.000000000 -0400
+@@ -491,4 +491,7 @@
+ asmlinkage long sys_uselib(const char __user *library);
+ asmlinkage long sys_ni_syscall(void);
+ 
++asmlinkage long sys_FSsched(unsigned int);
++asmlinkage long sys_enableProfiling(unsigned int);
++
+ #endif
+diff -Naru linux-2.6.9-default/kernel/exit.c linux-2.6.9-lab3/kernel/exit.c
+--- linux-2.6.9-default/kernel/exit.c	2004-10-18 17:55:06.000000000 -0400
++++ linux-2.6.9-lab3/kernel/exit.c	2017-10-10 05:47:31.000000000 -0400
+@@ -786,6 +786,9 @@
+ 
+ 	profile_task_exit(tsk);
+ 
++        if (enableFS == 1 && tsk->policy == SCHED_FS)
++            decr_FS_process(tsk->uid);
++
+ 	if (unlikely(in_interrupt()))
+ 		panic("Aiee, killing interrupt handler!");
+ 	if (unlikely(!tsk->pid))
+diff -Naru linux-2.6.9-default/kernel/fork.c linux-2.6.9-lab3/kernel/fork.c
+--- linux-2.6.9-default/kernel/fork.c	2004-10-18 17:53:13.000000000 -0400
++++ linux-2.6.9-lab3/kernel/fork.c	2017-10-10 08:41:37.000000000 -0400
+@@ -1241,6 +1241,11 @@
+ 	}
+ 
+ 	p = copy_process(clone_flags, stack_start, regs, stack_size, parent_tidptr, child_tidptr, pid);
++
++        if (enableFS == 1 && p->policy == SCHED_FS) {
++            add_FS_process(p->uid);
++        }
++           
+ 	/*
+ 	 * Do this prior waking up the new thread - the thread pointer
+ 	 * might get invalid after that point, if the thread exits quickly.
+diff -Naru linux-2.6.9-default/kernel/Makefile linux-2.6.9-lab3/kernel/Makefile
+--- linux-2.6.9-default/kernel/Makefile	2004-10-18 17:53:43.000000000 -0400
++++ linux-2.6.9-lab3/kernel/Makefile	2017-10-10 09:10:04.000000000 -0400
+@@ -7,7 +7,7 @@
+ 	    sysctl.o capability.o ptrace.o timer.o user.o \
+ 	    signal.o sys.o kmod.o workqueue.o pid.o \
+ 	    rcupdate.o intermodule.o extable.o params.o posix-timers.o \
+-	    kthread.o
++	    kthread.o sched_profile.o
+ 
+ obj-$(CONFIG_FUTEX) += futex.o
+ obj-$(CONFIG_GENERIC_ISA_DMA) += dma.o
+diff -Naru linux-2.6.9-default/kernel/sched.c linux-2.6.9-lab3/kernel/sched.c
+--- linux-2.6.9-default/kernel/sched.c	2004-10-18 17:54:55.000000000 -0400
++++ linux-2.6.9-lab3/kernel/sched.c	2017-10-11 10:33:40.000000000 -0400
+@@ -45,8 +45,105 @@
+ #include <linux/times.h>
+ #include <asm/tlb.h>
+ 
++
+ #include <asm/unistd.h>
+ 
++//[Start- lab3 add -Add]//
++#include <linux/unistd.h>
++#include <linux/linkage.h>
++
++unsigned int enableFS = 0;
++
++asmlinkage long sys_FSsched(unsigned int flag)
++{
++  if (flag > 1)
++    flag = 1;
++
++  enableFS = flag;
++
++  return 0;
++}
++
++extern unsigned int enableProf;
++extern char *FS_profile_msg;
++extern int FS_file_write(unsigned char *data);
++
++typedef struct FS_info {
++    uid_t uid;
++    atomic_t np; /* number of active processes, which are using FS scheduler, for this user*/
++    struct FS_info *next;
++} FS_info;
++
++struct FS_info *FS_user_list = NULL; 
++atomic_t FS_nUsers;
++
++struct FS_info * get_FS_user_info(uid_t uid) {
++    struct FS_info *cur = FS_user_list;
++    if (FS_user_list == NULL) {
++        atomic_set(&FS_nUsers, 0);
++    }
++    while (cur != NULL && cur->uid != uid) {
++        cur = cur->next;
++    }
++    return cur;
++}
++
++volatile int get_FS_np(uid_t uid) {
++    FS_info *user = get_FS_user_info(uid);
++    return (user == NULL) ? 0 : atomic_read(&user->np);
++}
++
++struct FS_info * add_FS_user(uid_t uid) {
++    struct FS_info *cur = FS_user_list;
++
++    // create a new user struct
++    struct FS_info *user = vmalloc(sizeof(FS_info));
++    user->uid = uid;
++    atomic_set(&user->np, 0);
++    user->next = NULL;
++    
++    // create a head of the list if there is none, otherwise add a user
++    if (cur == NULL) {
++        FS_user_list = user;
++    } else {
++        while (cur != NULL && cur->next != NULL) {
++            cur = cur->next;
++        }
++        cur->next = user;
++    }
++
++    atomic_inc(&FS_nUsers);
++
++    return user;
++}
++
++void add_FS_process(uid_t uid) {
++    FS_info *user = get_FS_user_info(uid);
++    
++    // add a new user if this user isn't in the list yet
++    if (user == NULL) {
++        user = add_FS_user(uid);
++    } else if (atomic_read(&user->np) == 0) {
++        atomic_inc(&FS_nUsers);
++    }
++    atomic_inc(&user->np);
++}
++
++void decr_FS_process(uid_t uid) {
++   struct FS_info *user = get_FS_user_info(uid);
++   // in case we aren't tracking users correclty, we can check log instead of creashing
++   if (unlikely(user == NULL)) {
++       printk("[decr_FS_process] User %d was not in FS list and caused an error\n", uid);
++   } else {
++       atomic_dec(&user->np);
++       if (atomic_read(&user->np) == 0) {
++           atomic_dec(&FS_nUsers);
++       }
++       //printk("[decr_FS_process] User %d now has %d processes; now we have %d users\n", uid, atomic_read(&user->np), atomic_read(&FS_nUsers));
++   }
++}
++//[End- lab3 add -Add]//
++
+ #ifdef CONFIG_NUMA
+ #define cpu_to_node_mask(cpu) node_to_cpumask(cpu_to_node(cpu))
+ #else
+@@ -173,12 +270,21 @@
+ #define SCALE_PRIO(x, prio) \
+ 	max(x * (MAX_PRIO - prio) / (MAX_USER_PRIO/2), MIN_TIMESLICE)
+ 
++/* Each process gets the timeslice according to number of active users
++   and number of processes the current user has */
++#define SCALE_FS(nUser, nProc) \
++        ((DEF_TIMESLICE / nUser) / nProc)
++
+ static unsigned int task_timeslice(task_t *p)
+ {
+-	if (p->static_prio < NICE_TO_PRIO(0))
+-		return SCALE_PRIO(DEF_TIMESLICE*4, p->static_prio);
+-	else
+-		return SCALE_PRIO(DEF_TIMESLICE, p->static_prio);
++    if (enableFS == 1 && p->policy == SCHED_FS) {
++        return SCALE_FS(atomic_read(&FS_nUsers), get_FS_np(p->uid));
++    } else {
++        if (p->static_prio < NICE_TO_PRIO(0))
++                return SCALE_PRIO(DEF_TIMESLICE*4, p->static_prio);
++        else
++                return SCALE_PRIO(DEF_TIMESLICE, p->static_prio);
++    }
+ }
+ #define task_hot(p, now, sd) ((long long) ((now) - (p)->last_ran)	\
+ 				< (long long) (sd)->cache_hot_time)
+@@ -441,6 +547,7 @@
+ # define task_running(rq, p)		((rq)->curr == (p))
+ #endif
+ 
++
+ /*
+  * task_rq_lock - lock the runqueue a given task resides on and disable
+  * interrupts.  Note the ordering: we can safely lookup the task_rq without
+@@ -2448,6 +2555,14 @@
+ 		goto out_unlock;
+ 	}
+ 	if (!--p->time_slice) {
++                if (enableProf) {
++                    if (p->policy == SCHED_FS)
++                        printk("[FS] [Enter %s in %s] timestamp %llu user %d pid %d with policy %lu, timeslice %d\n", __FUNCTION__, __FILE__, sched_clock(), p->uid, p->pid, p->policy, p->time_slice);
++                }
++                /*if (enableProf && p->policy == SCHED_FS) {
++                    sprintf(FS_profile_msg, "[schedule_tick] user %d pid %d will be scheduled OUT at %lu\n", p->uid, p->pid, sched_clock());
++                    FS_file_write(FS_profile_msg);
++                }*/
+ 		dequeue_task(p, rq->active);
+ 		set_tsk_need_resched(p);
+ 		p->prio = effective_prio(p);
+@@ -2669,6 +2784,10 @@
+ 	else
+ 		run_time = NS_MAX_SLEEP_AVG;
+ 
++        if (enableProf) {
++            if (prev->policy == SCHED_FS)
++                printk("[FS] [Enter %s in %s] timestamp %llu user %d pid %d with policy %lu, timeslice %d\n", __FUNCTION__, __FILE__, now, prev->uid, prev->pid, prev->policy, prev->time_slice);
++        }
+ 	/*
+ 	 * Tasks with interactive credits get charged less run_time
+ 	 * at high sleep_avg to delay them losing their interactive
+@@ -2769,6 +2888,19 @@
+ 
+ 	sched_info_switch(prev, next);
+ 	if (likely(prev != next)) {
++                if (enableProf) {
++                    if (prev->policy == SCHED_FS)
++                        printk("[FS] [%s in %s] timestamp %llu user %d pid %d with policy %lu, timeslice %d gets scheduled OUT\n", __FUNCTION__, __FILE__, now, prev->uid, prev->pid, prev->policy, prev->time_slice);
++                    if (next->policy == SCHED_FS)
++                        printk("[FS] [%s in %s] timestamp %llu user %d pid %d with policy %lu, timeslice %d gets scheduled IN\n", __FUNCTION__, __FILE__, now, next->uid, next->pid, next->policy, next->time_slice);
++                }
++                {
++                    /*FS_file_write("Enter schedule");
++                    sprintf(FS_profile_msg, "[schedule] user %d pid %d with policy %d gets scheduled OUT at %lu\n"
++                                            "[schedule] user %d pid %d with policy %d gets scheduled IN timeslice %lu at %lu\n"
++                                            , prev->uid, prev->pid, prev->policy, now, next->uid, next->pid, next->policy, next->time_slice, now);
++                    FS_file_write(FS_profile_msg);*/
++                }
+ 		next->timestamp = now;
+ 		rq->nr_switches++;
+ 		rq->curr = next;
+@@ -3171,7 +3303,7 @@
+ 	BUG_ON(p->array);
+ 	p->policy = policy;
+ 	p->rt_priority = prio;
+-	if (policy != SCHED_NORMAL)
++	if (policy != SCHED_NORMAL && policy != SCHED_FS)
+ 		p->prio = MAX_USER_RT_PRIO-1 - p->rt_priority;
+ 	else
+ 		p->prio = p->static_prio;
+@@ -3214,38 +3346,43 @@
+ 	 */
+ 	rq = task_rq_lock(p, &flags);
+ 
+-	if (policy < 0)
++	if (policy < 0 || (p->uid == 0 && policy == SCHED_FS))
+ 		policy = p->policy;
+ 	else {
+ 		retval = -EINVAL;
+ 		if (policy != SCHED_FIFO && policy != SCHED_RR &&
+-				policy != SCHED_NORMAL)
++				policy != SCHED_NORMAL 
++                                && policy != SCHED_FS)
+ 			goto out_unlock;
+ 	}
+ 	profile_hit(SCHED_PROFILING, __builtin_return_address(0));
+ 
+-	/*
+-	 * Valid priorities for SCHED_FIFO and SCHED_RR are
+-	 * 1..MAX_USER_RT_PRIO-1, valid priority for SCHED_NORMAL is 0.
+-	 */
+-	retval = -EINVAL;
+-	if (lp.sched_priority < 0 || lp.sched_priority > MAX_USER_RT_PRIO-1)
+-		goto out_unlock;
+-	if ((policy == SCHED_NORMAL) != (lp.sched_priority == 0))
+-		goto out_unlock;
+-
+-	retval = -EPERM;
+-	if ((policy == SCHED_FIFO || policy == SCHED_RR) &&
+-	    !capable(CAP_SYS_NICE))
+-		goto out_unlock;
+-	if ((current->euid != p->euid) && (current->euid != p->uid) &&
+-	    !capable(CAP_SYS_NICE))
+-		goto out_unlock;
+-
+-	retval = security_task_setscheduler(p, policy, &lp);
+-	if (retval)
+-		goto out_unlock;
+-
++        if(policy != SCHED_FS) {
++            /*
++             * Valid priorities for SCHED_FIFO and SCHED_RR are
++             * 1..MAX_USER_RT_PRIO-1, valid priority for SCHED_NORMAL is 0.
++             */
++            retval = -EINVAL;
++            if (lp.sched_priority < 0 || lp.sched_priority > MAX_USER_RT_PRIO-1)
++                    goto out_unlock;
++            if ((policy == SCHED_NORMAL) != (lp.sched_priority == 0))
++                    goto out_unlock;
++
++            retval = -EPERM;
++            if ((policy == SCHED_FIFO || policy == SCHED_RR) &&
++                !capable(CAP_SYS_NICE))
++                    goto out_unlock;
++            if ((current->euid != p->euid) && (current->euid != p->uid) &&
++                !capable(CAP_SYS_NICE))
++                    goto out_unlock;
++
++            retval = security_task_setscheduler(p, policy, &lp);
++            if (retval)
++                    goto out_unlock;
++        } else {
++            // increment this users process counter
++            add_FS_process(p->uid);
++        }
+ 	array = p->array;
+ 	if (array)
+ 		deactivate_task(p, task_rq(p));
+diff -Naru linux-2.6.9-default/kernel/sched_profile.c linux-2.6.9-lab3/kernel/sched_profile.c
+--- linux-2.6.9-default/kernel/sched_profile.c	1969-12-31 19:00:00.000000000 -0500
++++ linux-2.6.9-lab3/kernel/sched_profile.c	2017-10-11 12:18:33.000000000 -0400
+@@ -0,0 +1,61 @@
++#include <linux/fs.h>
++#include <asm/segment.h>
++#include <asm/uaccess.h>
++#include <linux/buffer_head.h>
++#include <linux/unistd.h>
++#include <linux/linkage.h>
++
++#include <linux/kernel.h>
++#include <linux/syscalls.h>
++#include <linux/file.h>
++#include <linux/fcntl.h>
++
++unsigned int enableProf = 0;
++char *FS_profile_msg = {0};
++unsigned long long FS_last_offset = 0;
++
++int FS_file_write(const char *data) 
++{
++    struct file *file; // FS_profile_file;
++    mm_segment_t oldfs;
++    int ret = 0;
++    int fd;
++    size_t size = strlen(data);
++
++    oldfs = get_fs();
++    set_fs(get_ds());
++    fd = sys_open("/tmp/lab3_fs_profiling.out", O_WRONLY|O_CREAT, 0666);
++    if (fd >= 0) {
++        sys_write(fd, data, size);
++        file = fget(fd);
++        if (file) {
++            ret = vfs_write(file, data, size, &FS_last_offset);
++            printk("[%s in %s] writing string '%s', start from offset %llu; [size %d, %u bytes]; ret %d\n", __FUNCTION__, __FILE__, data, FS_last_offset, size, strlen(data), ret);
++        } else {
++            printk("Failed to get the file pointer\n");
++        }
++        sys_close(fd);
++    } else {
++        printk("Failed to open the file\n");
++    }
++    set_fs(oldfs);
++
++    FS_last_offset += size;
++    return ret;
++}
++
++asmlinkage long sys_enableProfiling(unsigned int flag)
++{
++  unsigned long long now;
++  /* Set the flag, if flag > 1, it will be set to 1 */
++  enableProf = !!flag;
++    
++  /* Create profiling file if needed */
++    if (enableProf == 1) {
++        now = sched_clock();
++        printk("[FS] [START] %llu\n", now);
++        /*FS_profile_msg = "===Start profiling FS scheduler===\n";
++        FS_file_write(FS_profile_msg);*/
++    }
++  return 0;
++}
+diff -Naru linux-2.6.9-default/Makefile linux-2.6.9-lab3/Makefile
+--- linux-2.6.9-default/Makefile	2004-10-18 17:54:38.000000000 -0400
++++ linux-2.6.9-lab3/Makefile	2017-10-07 03:05:22.000000000 -0400
+@@ -1,7 +1,7 @@
+ VERSION = 2
+ PATCHLEVEL = 6
+ SUBLEVEL = 9
+-EXTRAVERSION =
++EXTRAVERSION = lab3
+ NAME=Zonked Quokka
+ 
+ # *DOCUMENTATION*

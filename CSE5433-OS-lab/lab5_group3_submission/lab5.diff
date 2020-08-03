@@ -1,0 +1,1534 @@
+diff --git a/Makefile b/Makefile
+index 38447c9..3ecc329 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ VERSION = 2
+ PATCHLEVEL = 6
+ SUBLEVEL = 9
+-EXTRAVERSION =
++EXTRAVERSION = lab5
+ NAME=Zonked Quokka
+ 
+ # *DOCUMENTATION*
+diff --git a/fs/Kconfig b/fs/Kconfig
+index c8cf865..e11e3cd 100644
+--- a/fs/Kconfig
++++ b/fs/Kconfig
+@@ -4,6 +4,11 @@
+ 
+ menu "File systems"
+ 
++config LAB5_FS
++	tristate "A simple FS for our lab5"
++        default m
++        help
++
+ config EXT2_FS
+ 	tristate "Second extended fs support"
+ 	help
+diff --git a/fs/Makefile b/fs/Makefile
+index e68e9f5..9e24b71 100644
+--- a/fs/Makefile
++++ b/fs/Makefile
+@@ -93,3 +93,4 @@ obj-$(CONFIG_AFS_FS)		+= afs/
+ obj-$(CONFIG_BEFS_FS)		+= befs/
+ obj-$(CONFIG_HOSTFS)		+= hostfs/
+ obj-$(CONFIG_HPPFS)		+= hppfs/
++obj-$(CONFIG_LAB5_FS)		+= lab5fs/
+diff --git a/fs/lab5fs/Makefile b/fs/lab5fs/Makefile
+new file mode 100644
+index 0000000..362a383
+--- /dev/null
++++ b/fs/lab5fs/Makefile
+@@ -0,0 +1,6 @@
++#
++# Makefile for the lab5-fs routines.
++#
++obj-$(CONFIG_LAB5_FS) += lab5fs.o
++
++lab5fs-y := file.o dir.o super.o
+diff --git a/fs/lab5fs/dir.c b/fs/lab5fs/dir.c
+new file mode 100644
+index 0000000..45c99d1
+--- /dev/null
++++ b/fs/lab5fs/dir.c
+@@ -0,0 +1,433 @@
++#include "lab5fs.h"
++
++/* File operations, readdir, for dir */
++/* FIXME: segfault occurs when we introduce handling of '.' and '..' on-the-fly */
++static int lab5fs_readdir(struct file * fp, void * dirent, filldir_t filldir) {
++    struct inode * dir = fp->f_dentry->d_inode;
++    struct dentry *dentry = fp->f_dentry;
++    struct buffer_head * bh;
++    struct lab5fs_direntry * de;
++    unsigned int offset;
++    int block;
++    int iblk = 0;
++    int special_off = 2;
++
++    printk("[%s]\n", __FUNCTION__);
++
++    lock_kernel();
++
++    printk("[%s] check f_pos %d\n", __FUNCTION__, fp->f_pos);
++
++    /* an empty dir (which should contain '.' */
++    if (fp->f_pos > dir->i_size - LAB5FS_DIRENT_SIZE) {
++        printk("[%s]: file pos larger then dir size\n", __FUNCTION__);
++        goto done;
++    }
++
++    /* special handling for '.' and '..' */
++    if (fp->f_pos == 0) {
++        printk("[%s] f_pos == 0, adding '.', ino=%lu\n", __FUNCTION__, dir->i_ino);
++        if (filldir(dirent, ".", 1, fp->f_pos, dir->i_ino, DT_DIR) < 0)
++            goto done;
++        fp->f_pos++;
++    }
++    if (fp->f_pos == 1) {
++        printk("[%s] f_pos == 1, adding '..', ino=%lu\n",
++                __FUNCTION__, dentry->d_parent->d_inode->i_ino);
++        if (filldir(dirent, "..", 2, fp->f_pos, dentry->d_parent->d_inode->i_ino, DT_DIR) < 0)
++            goto done;
++        fp->f_pos++;
++    }
++
++    printk("[%s] reading files for dir ino %lu\n", __FUNCTION__, dir->i_ino);
++    while ((fp->f_pos - special_off) < dir->i_size) {
++        /* minus special_off in the first time because of "." and ".." entries. */
++        offset = (fp->f_pos - special_off) & (LAB5FS_BLOCK_SIZE-1);
++        block = LAB5FS_I(dir)->i_block[iblk]; // + ((fp->f_pos - special_off) >> LAB5FS_BSIZE_BITS);
++        if (IS_VALID_BLOCK_NUM(block, LAB5FS_SB(dir->i_sb))) {
++            printk("[%s] reading files from block %d\n", __FUNCTION__, block);
++            bh = sb_bread(dir->i_sb, block);
++            if (!bh) {
++                fp->f_pos += LAB5FS_BLOCK_SIZE - offset;
++                continue;
++            }
++            do {
++                de = (struct lab5fs_direntry *)(bh->b_data + offset);
++                /* NOTE: we already took care of '.' case */
++                if (de->inode > LAB5FS_ROOT_INO && de->inode < LAB5FS_MAX_NUM_INODES) {
++                    int size = strnlen(de->name, LAB5FS_NAME_LEN);
++                    unsigned char d_type = (de->ftype == LAB5FS_VDIR) ? DT_DIR : DT_REG; //DT_UNKNOWN;
++                    printk("[%s] found a file '%s', d_type %lu\n", __FUNCTION__, de->name, d_type);
++                    if (filldir(dirent, de->name, size, fp->f_pos, de->inode, d_type) < 0) {
++                        brelse(bh);
++                        goto done;
++                    }
++                }
++                offset += LAB5FS_DIRENT_SIZE;
++                fp->f_pos += LAB5FS_DIRENT_SIZE;
++            /* minus special_off in the first time because of "." and ".." entries. */
++            } while (de->inode && offset < LAB5FS_BLOCK_SIZE && (fp->f_pos - special_off) < dir->i_size);
++            brelse(bh);
++        }
++        iblk++;
++    }
++
++done:
++    /* Update access time */
++    dir->i_atime = CURRENT_TIME;
++    fp->f_version = dir->i_version;
++    unlock_kernel();
++    printk("[%s] done\n", __FUNCTION__);
++    return 0;
++}
++
++struct file_operations lab5fs_dir_ops = {
++    .read    = generic_read_dir,
++    .readdir = lab5fs_readdir,
++    .fsync   = file_fsync,
++};
++
++static inline int lab5fs_namecmp(int len, const char * name, const char * buffer)
++{
++        if (len < LAB5FS_NAME_LEN && buffer[len])
++                return 0;
++        return !memcmp(name, buffer, len);
++}
++
++static struct buffer_head * lab5fs_find_entry(struct inode * dir,
++        const char * name, int namelen, struct lab5fs_direntry ** res_dir)
++{
++    unsigned long iblk, block, off, checked_size;
++    struct buffer_head * bh;
++    struct lab5fs_direntry * de;
++    printk("[%s], dir inode %lu\n", __FUNCTION__, LAB5FS_I(dir)->i_ino);
++
++    *res_dir = NULL;
++    if (namelen > LAB5FS_NAME_LEN)
++        return NULL;
++
++    bh = NULL;
++    iblk = block = off = checked_size = 0;
++    for (iblk = 0; iblk < LAB5FS_MAX_BLOCKS_PER_FILE && checked_size < dir->i_size ; iblk++) {
++        block = LAB5FS_I(dir)->i_block[iblk];
++
++        if (block >= LAB5FS_FIRST_DATA_BLOCK && block <= LAB5FS_SB(dir->i_sb)->s_last_data_block) {
++            printk("[%s] reading block number %lu\n", __FUNCTION__, block);
++            /* read in the data block of the parent directory. */
++            bh = sb_bread(dir->i_sb, block);
++            if (!bh) {
++                printk("[%s] unable to read dir data block, %lu\n", __FUNCTION__, LAB5FS_I(dir)->i_block[iblk]);
++                return NULL;
++            }
++            /* find the last entry in the parent directory. */
++            for (off = 0; off < LAB5FS_BLOCK_SIZE  && checked_size < dir->i_size ; off += LAB5FS_DIRENT_SIZE) {
++                de = (struct lab5fs_direntry *)(bh->b_data + off);
++                printk("[%s] checking entry, dir_entry %p, ino %lu\n", __FUNCTION__, de, de->inode);
++                /* if found, populate the entry. */
++                if (de->inode && lab5fs_namecmp(namelen, name, de->name)) {
++                    printk("[%s] found entry, ino %lu\n", __FUNCTION__, de->inode);
++                    *res_dir = de;
++                    return bh;
++                }
++                checked_size += LAB5FS_DIRENT_SIZE;
++            }
++            brelse(bh);
++            bh = NULL;
++        } else
++            printk("[%s] invalid block number %lu at pos %lu...skip...\n", __FUNCTION__, block, iblk);
++    }
++    if (bh) {
++        brelse(bh);
++        bh = NULL;
++    }
++    return NULL;
++}
++
++static struct dentry * lab5fs_lookup (struct inode * dir, struct dentry * dentry, struct nameidata * nd) {
++    struct inode * inode = NULL;
++    struct buffer_head * bh = NULL;
++    struct lab5fs_direntry * de;
++    printk("[%s]\n", __FUNCTION__);
++
++    /* Check the length of the direcotry */
++    if (dentry->d_name.len > LAB5FS_NAME_LEN)
++        return ERR_PTR(-ENAMETOOLONG);
++
++    printk("[%s] searching dir/file name %s\n", __FUNCTION__, dentry->d_name.name);
++    lock_kernel();
++    /* Search the inode */
++    bh = lab5fs_find_entry(dir, dentry->d_name.name, dentry->d_name.len, &de);
++    if (bh) {
++        printk("[%s] found dir entry\n", __FUNCTION__);
++        unsigned long ino = le32_to_cpu(de->inode);
++        brelse(bh);
++        printk("[%s] get inode, ino %lu\n", __FUNCTION__, ino);
++        inode = iget(dir->i_sb, ino);
++        if (!inode) {
++            unlock_kernel();
++            return ERR_PTR(-EACCES);
++        }
++    }
++    unlock_kernel();
++    d_add(dentry, inode);
++    return NULL;
++}
++
++/* 
++ * Add this inode as an entry in the directory's data
++ * Parent is locked
++ * Reference bfs/dir.c#273 or ext2/dir.c#346 
++ */
++static int lab5fs_add_entry(struct dentry *dentry, struct inode *inode) {
++    printk("[%s]\n", __FUNCTION__);
++    struct inode *dir = dentry->d_parent->d_inode;
++    struct lab5fs_inode_info *dir_info = LAB5FS_I(dir);
++    struct buffer_head *bh = NULL;
++    struct lab5fs_direntry *dir_entry = NULL;
++
++    printk("[%s] parent directory %s, dir inode number %lu\n", __FUNCTION__, dentry->d_parent->d_name.name, dir_info->i_ino);
++
++    const char *name = dentry->d_name.name;
++    int namelen = dentry->d_name.len;
++    //unsigned chunk_size = inode->i_sb->s_blocksize; /* it may across multple blocks */
++    uint32_t checked_size = 0;
++    int off, i;
++    int iblk;
++    int block;
++    int err = 0;
++
++    /*TODO: handle the case when the existing block(s) are full of files/direcories 
++            and there are free blocks can be allocated */
++
++    for (iblk = 0; iblk < LAB5FS_MAX_BLOCKS_PER_FILE ; iblk++) {
++        block = dir_info->i_block[iblk];
++        printk("[%s] reading block number %d\n", __FUNCTION__, block);
++
++        if (IS_VALID_BLOCK_NUM(block, LAB5FS_SB(dir->i_sb))) {
++            /* read in the data block of the parent directory. */
++            bh = sb_bread(dir->i_sb, block);
++            if (!bh) {
++                printk("[%s] unable to read dir data block, %lu\n", __FUNCTION__, dir_info->i_block[iblk]);
++                err = -ENOSPC;
++                goto fn_exit;
++            }
++            /* find the last entry in the parent directory. */
++            for (off = 0; off < LAB5FS_BLOCK_SIZE; off += LAB5FS_DIRENT_SIZE) {
++                dir_entry = (struct lab5fs_direntry *)(bh->b_data + off);
++                printk("[%s] checking entry, dir_entry %p\n", __FUNCTION__, dir_entry);
++                /* if found, populate the entry. */
++                if (!dir_entry->inode) {
++                    /* could be a new file/directory if the size is larger than the one specify in the dir's inode */
++                    /* First, update dir's inode */
++                    if (iblk * LAB5FS_BLOCK_SIZE + off >= dir->i_size) {
++                        dir->i_size += LAB5FS_DIRENT_SIZE;
++                        dir->i_ctime = CURRENT_TIME;
++                    }
++                    dir->i_mtime = CURRENT_TIME;
++                    mark_inode_dirty(dir);
++                    /* Next, update direntry for this new file or directory */
++                    dir_entry->inode = cpu_to_le32(inode->i_ino);
++                    dir_entry->name_len = namelen;
++                    dir_entry->ftype = LAB5FS_I(inode)->i_vtype;
++                    /* copy the file/dir name */
++                    for (i=0; i<LAB5FS_NAME_LEN; i++)
++                        dir_entry->name[i] = (i < namelen) ? name[i] : 0;
++
++                    mark_buffer_dirty(bh);
++                    goto fn_exit;
++                }
++                checked_size += off;
++            }
++        }
++    }
++    /* reach here if no free entry found... something might go wrong */
++    err = -ENOSPC;
++fn_exit:
++    if (bh)
++        brelse(bh);
++    return err;
++}
++
++static inline int lab5fs_add_nondir(struct dentry *dentry, struct inode *inode)
++{
++    int err = 0;
++    LAB5FS_I(inode)->i_vtype = LAB5FS_VREG;
++    inode->i_op = &lab5fs_file_inode_ops;
++    inode->i_fop = &lab5fs_file_ops;
++    inode->i_mapping->a_ops = &lab5fs_aops;
++    mark_inode_dirty(inode);
++    err = lab5fs_add_entry(dentry, inode);
++    if (!err) {
++        printk("[%s] done lab5fs_add_entry, next do d_instantiate with dentry %p, inode %p\n", __FUNCTION__, dentry, inode);
++        d_instantiate(dentry, inode);
++        return 0;
++    }
++    printk("[%s] something went wrong\n", __FUNCTION__);
++    /* If something went wrong, revert the changes */
++    inode->i_nlink--;
++    mark_inode_dirty(inode);
++    iput(inode);
++    return err; 
++}
++
++/* Following are inode operations for dir */
++// Do we need a create for directories?
++/* this op is for creating a new file, 'mkdir' is the one to create new dir */
++static int lab5fs_create (struct inode * dir, struct dentry * dentry, int mode, struct nameidata * data) {
++    printk("[%s] dir %p, dentry %p, data %p\n", __FUNCTION__, dir, dentry, data);
++    printk("[%s] creating file name '%s', mode %o, at dir inode %lu\n", __FUNCTION__, dentry->d_name.name, mode, dir->i_ino);
++    printk("[%s] parent dir %s\n", __FUNCTION__, dentry->d_parent->d_name.name);
++
++    struct inode *inode = lab5fs_new_inode(dir->i_sb, mode);
++    int err = PTR_ERR(inode);
++    if (!IS_ERR(inode)) {
++        inode->i_op = &lab5fs_file_inode_ops;
++        inode->i_fop = &lab5fs_file_ops;
++        inode->i_mapping->a_ops = &lab5fs_aops;
++
++        mark_inode_dirty(inode);
++        err = lab5fs_add_nondir(dentry, inode);
++    }
++    printk("[%s] done, err %d, new inode %p\n", __FUNCTION__, err, inode);
++    return err;
++}
++
++/* Refer to bfs/dir.c bfs_link */
++static int lab5fs_link (struct dentry * oldname, struct inode * dir, struct dentry * newname) {
++
++    struct inode *inode = oldname->d_inode;
++
++    printk(KERN_INFO "[%s] linking files\n", __FUNCTION__);
++
++    inode->i_nlink++;
++    inode->i_ctime = CURRENT_TIME;
++    mark_inode_dirty(inode);
++    atomic_inc(&inode->i_count);
++
++    return lab5fs_add_nondir(newname, inode);
++
++}
++
++static int lab5fs_unlink (struct inode * dir, struct dentry * dentry) {
++    
++    int error = -ENOENT;
++    struct inode *inode;
++    struct buffer_head *bh;
++    struct lab5fs_direntry *de;
++
++    printk(KERN_INFO "[%s] lab5fs unlinking inode\n", __FUNCTION__);
++    inode = dentry->d_inode;
++    bh = lab5fs_find_entry(dir, dentry->d_name.name, dentry->d_name.len, &de);
++    if (!bh || !de)
++        goto out_brelse;
++
++    if (!inode->i_nlink) {
++        printk(KERN_ERR "[%s] unlinking non-existent file\n", __FUNCTION__);
++        inode->i_nlink = 1;
++    }
++    
++    de->inode = 0;
++    mark_buffer_dirty(bh);
++    dir->i_ctime = dir->i_mtime = CURRENT_TIME;
++    mark_inode_dirty(dir);
++    inode->i_nlink--;
++    inode->i_ctime = dir->i_ctime;
++    mark_inode_dirty(inode);
++    error = 0;
++
++out_brelse:
++    brelse(bh);
++    return error;
++
++}
++
++static inline int lab5fs_make_empty_dir(struct inode *inode) {
++    printk("[%s]\n", __FUNCTION__);
++    struct lab5fs_inode_info *ino_info = LAB5FS_I(inode);
++    uint32_t block_num = ino_info->i_block[0];
++    struct buffer_head *bh;
++    struct lab5fs_direntry *dir_entry;
++
++    printk("[%s] store new dir at block %lu\n", __FUNCTION__, block_num);
++    bh = sb_bread(inode->i_sb, block_num);
++    if (!bh) {
++        printk("[%s] cannot read block %lu\n", __FUNCTION__, block_num);
++        return -EIO;
++    }
++
++    dir_entry = (struct lab5fs_direntry *) bh->b_data;
++    memset(dir_entry, 0 , sizeof(struct lab5fs_direntry));
++    mark_buffer_dirty(bh);
++
++    inode->i_size += LAB5FS_BLOCK_SIZE;
++    inode->i_blocks++;
++    inode->i_mtime = inode->i_ctime = CURRENT_TIME;
++    mark_inode_dirty(inode);
++
++    if (bh)
++        brelse(bh);
++    return 0;
++}
++
++static inline int lab5fs_add_dir(struct dentry *dentry, struct inode *inode)
++{
++    int err = 0;
++    LAB5FS_I(inode)->i_vtype = LAB5FS_VDIR;
++    inode->i_op = &lab5fs_dir_inode_ops;
++    inode->i_fop = &lab5fs_dir_ops;
++    inode->i_mapping->a_ops = &lab5fs_aops;
++    mark_inode_dirty(inode);
++     /* create the child dir on disk, as an empty directory. */
++    err = lab5fs_make_empty_dir(inode);
++    if (!err) {
++        /* link the child as an inode in the parent. */
++        err = lab5fs_add_entry(dentry, inode);
++        if (!err) {
++            printk("[%s] done lab5fs_add_entry, next do d_instantiate with dentry %p, inode %p\n", __FUNCTION__, dentry, inode);
++            d_instantiate(dentry, inode);
++            return 0;
++        }
++    }
++    printk("[%s] something went wrong\n", __FUNCTION__);
++    /* If something went wrong, revert the changes */
++    inode->i_nlink--;
++    mark_inode_dirty(inode);
++    iput(inode);
++    return err; 
++}
++
++/* Not required, can do this for fun */
++static int lab5fs_mkdir (struct inode *parent_dir, struct dentry *dentry, int mode) {
++    printk("[%s] dir %p, dentry %p\n", __FUNCTION__, parent_dir, dentry);
++    printk("[%s] creating directory name '%s', mode %o, under dir inode %lu\n", __FUNCTION__, dentry->d_name.name, mode, parent_dir->i_ino);
++    printk("[%s] parent dir %s\n", __FUNCTION__, dentry->d_parent->d_name.name);
++
++    struct inode *inode;
++    int parent_dir_inc = 0;
++    int child_dir_inc = 0;
++
++    /* increase the link count of the parent dir (the child dir will have
++         * a '..' entry pointing back to the parent dir). */
++    parent_dir->i_nlink++;
++    mark_inode_dirty(parent_dir);
++    parent_dir_inc++;
++
++    /* get a new inode and mark it as a Direcotry */
++    inode = lab5fs_new_inode(parent_dir->i_sb, S_IFDIR | mode);
++    int err = PTR_ERR(inode);
++    if (!IS_ERR(inode)) {
++        inode->i_nlink++;
++        mark_inode_dirty(inode);
++        err = lab5fs_add_dir(dentry, inode);
++    }
++    printk("[%s] done, err %d, new inode %p\n", __FUNCTION__, err, inode);
++    return err;
++}
++
++struct inode_operations lab5fs_dir_inode_ops = {
++    .create = lab5fs_create,
++    .lookup = lab5fs_lookup,
++    .link   = lab5fs_link,
++    .unlink = lab5fs_unlink,
++    .mkdir = lab5fs_mkdir,
++};
+diff --git a/fs/lab5fs/file.c b/fs/lab5fs/file.c
+new file mode 100644
+index 0000000..489c033
+--- /dev/null
++++ b/fs/lab5fs/file.c
+@@ -0,0 +1,111 @@
++#include "lab5fs.h"
++
++#include <linux/buffer_head.h>
++
++/* TODO: not sure if this is needed */
++struct inode_operations lab5fs_file_inode_ops;
++
++/* Just use the existing ones */
++struct file_operations lab5fs_file_ops = {
++    .llseek     = generic_file_llseek,
++    .read       = generic_file_read,
++    .write      = generic_file_write,
++    .mmap       = generic_file_mmap,
++    .sendfile   = generic_file_sendfile,
++    .fsync      = file_fsync,
++};
++
++/*
++ * Given an inode, find the block number to which a given block offset is
++ * mapped.
++ * @param inode - the inode for which the block is requested.
++ * @param block_offset - the logical position of the block in the file.
++ * @param buffer_head - the buffer-head into which we should write the
++ *                      matching physical disk information.
++ * @param create - used for 'write' operations - if this flag is not 0 and the
++ *                 block is not mapped - create a mapping to it, rather then 
++ *                 returning an error.
++ * @return 0 on success or a negative error code on failure.
++ */
++int lab5fs_get_block(struct inode *inode, sector_t block_offset, struct buffer_head *bh_result, int create) {
++    int err = 0;
++    int block_num = -1;
++    struct super_block *sb = inode->i_sb;
++    struct lab5fs_sb_info *info = LAB5FS_SB(sb);
++    struct lab5fs_inode_info *bi = LAB5FS_I(inode);
++    struct buffer_head *sbh = info->s_sbh;
++    printk("[%s]\n", __FUNCTION__);
++
++    if (block_offset < 0 || block_offset > info->s_last_data_block)
++        return -EIO;
++
++    /* First, try to get the block number for the given inode */
++    block_num = LAB5FS_I(inode)->i_block[block_offset];
++    printk("[%s] block_offset is %lu, which will be block %lu\n", __FUNCTION__, block_num);
++
++    /* if the block offset can be found, which means it is mapped - set the number in bh_result and return */
++    if (IS_VALID_BLOCK_NUM(block_num, info)) {
++        map_bh(bh_result, inode->i_sb, le32_to_cpu(block_num));
++        printk("[%d]: found existing block, block_num=%d\n", __FUNCTION__, block_num);
++        goto fn_exit;
++    }
++    /* the block offset is not mapped, and create == 0 - return no block. */
++    if (create == 0) {
++        printk("[%s]: block not mapped and create==0, returning no block\n", __FUNCTION__);
++        goto fn_exit;
++    }
++
++    /* block offset not mapped and create != 0 - allocate a new block. */
++    block_num = lab5fs_alloc_block(inode->i_sb);
++    if (block_num == 0) {
++        printk("[%s]: cannot allocate block - no free blocks available\n", __FUNCTION__);
++        err = -ENOSPC;
++        goto fn_exit;
++    }
++
++    lock_kernel();
++
++    inode->i_blocks += 1;
++    LAB5FS_I(inode)->i_block[block_offset] = block_num;
++
++    if (err) {
++        printk("[%s]: failed updating the block mapping\n", __FUNCTION__);
++        goto fn_exit;
++    }
++
++    /* the block is new and now mapping it */
++    map_bh(bh_result, inode->i_sb, le32_to_cpu(block_num));
++    
++    mark_inode_dirty(inode);    
++
++    unlock_kernel();
++
++fn_exit:
++    if (err !=0 && block_num > 0)
++        lab5fs_release_block(inode->i_sb, block_num);
++    return err;
++}
++
++static int lab5fs_readpage(struct file *fp, struct page *page) {
++    printk("[%s]\n", __FUNCTION__);
++    return block_read_full_page(page, lab5fs_get_block);
++}
++
++static int lab5fs_writepage(struct page *page, struct writeback_control *wbc) {
++    printk("[%s]\n", __FUNCTION__);
++    return block_write_full_page(page, lab5fs_get_block, wbc);
++}
++
++static int lab5fs_prepare_write(struct file *fp, struct page *page, unsigned from, unsigned to){
++    printk("[%s]\n", __FUNCTION__);
++    return block_prepare_write(page, from, to, lab5fs_get_block);
++}
++
++struct address_space_operations lab5fs_aops = {
++        .readpage       = lab5fs_readpage,
++        .writepage      = lab5fs_writepage,
++        .sync_page      = block_sync_page,
++        .prepare_write  = lab5fs_prepare_write,
++        .commit_write   = generic_commit_write,
++        //.bmap           = lab5fs_bmap,
++};
+diff --git a/fs/lab5fs/lab5fs.h b/fs/lab5fs/lab5fs.h
+new file mode 100644
+index 0000000..1179306
+--- /dev/null
++++ b/fs/lab5fs/lab5fs.h
+@@ -0,0 +1,80 @@
++#include <linux/unistd.h>
++#include <linux/buffer_head.h>
++#include <linux/fs.h>
++#include <linux/version.h>
++#include <linux/config.h>
++#include <linux/sys.h>
++#include <linux/stddef.h>
++#include <linux/types.h>
++#include <linux/kernel.h>    // included for KERN_INFO
++#include <linux/smp_lock.h>
++
++#include <linux/lab5fs.h>
++
++/* lab5fs inode data in memory
++ * based on ext2/ext2.h
++ */
++struct lab5fs_inode_info {
++	struct inode vfs_inode;
++	uint16_t i_ino;
++        uint32_t i_vtype;
++        uint32_t i_last_blk_offset;
++        uint32_t i_num_blocks;
++        uint32_t block_no; /* Block number of inode */
++        uint32_t i_block[LAB5FS_MAX_BLOCKS_PER_FILE];   /* Pointers to blocks, __le32 */
++};
++
++/* based on struct ext2_sb_info */
++struct lab5fs_sb_info {
++    unsigned long s_free_blocks;                    /* Number of free blocks */
++    unsigned long s_free_inodes;                    /* Number of free inodes */
++    unsigned long s_last_data_block;                /* Last block number */
++    struct lab5fs_data_block_bitmap *s_db_bitmap;    /* Bitmap for data block */
++    struct lab5fs_inode_bitmap *s_ino_bitmap;        /* Bitmap for inodes */
++    struct buffer_head * s_sbh;	        /* Buffer containing the super block */
++    struct buffer_head * s_bh_ino;	        /* Buffer containing the inode bitmap */
++    struct buffer_head * s_bh_db;	        /* Buffer containing the data block bitmap */
++
++    unsigned long s_frag_size;	        /* Size of a fragment in bytes */
++    unsigned long s_frags_per_block;    /* Number of fragments per block */
++    unsigned long s_inodes_per_block;   /* Number of inodes per block */
++    struct lab5fs_super_block * s_es;	/* Pointer to the super block in the buffer */
++    unsigned long  s_mount_opt;
++    uid_t s_resuid;
++    gid_t s_resgid;
++    unsigned short s_mount_state;
++    unsigned short s_pad;
++    int s_addr_per_block_bits;
++    int s_inode_size;
++    int s_first_ino;
++    spinlock_t s_next_gen_lock;
++    u32 s_next_generation;
++    unsigned long s_dir_count;
++    u8 *s_debts;
++    //struct percpu_counter s_dirs_counter;
++    //struct blockgroup_lock s_blockgroup_lock;
++};
++
++static inline struct lab5fs_sb_info *LAB5FS_SB(struct super_block *sb)
++{
++	return sb->s_fs_info;
++}
++
++static inline struct lab5fs_inode_info *LAB5FS_I(struct inode *inode)
++{
++        return container_of(inode, struct lab5fs_inode_info, vfs_inode);
++}
++
++#define IS_VALID_BLOCK_NUM(blk_num, sb_info) (blk_num > 0 && blk_num <= sb_info->s_last_data_block)
++
++/* super.c */
++extern struct inode_operations lab5fs_file_inode_ops;
++extern struct inode_operations lab5fs_dir_inode_ops;
++extern struct inode * lab5fs_new_inode (struct super_block *sb, int mode);
++extern int lab5fs_alloc_block(struct super_block *sb);
++extern int lab5fs_release_block(struct super_block *sb, int block_num);
++/* file.c  */
++extern struct file_operations lab5fs_file_ops;
++/* dir.c */
++extern struct file_operations lab5fs_dir_ops;
++extern struct address_space_operations lab5fs_aops;
+diff --git a/fs/lab5fs/super.c b/fs/lab5fs/super.c
+new file mode 100644
+index 0000000..d8c5be6
+--- /dev/null
++++ b/fs/lab5fs/super.c
+@@ -0,0 +1,728 @@
++#include "lab5fs.h"
++
++#include <linux/fs.h>
++#include <linux/module.h>    // included for all kernel modules
++#include <linux/init.h>      // included for __init and __exit macros
++#include <linux/pagemap.h>
++#include <linux/blkdev.h>
++#include <linux/errno.h>
++#include <linux/mm.h>
++#include <linux/slab.h>
++#include <linux/statfs.h>
++
++//#include <asm/uaccess.h>
++
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Group3");
++MODULE_DESCRIPTION("Simple File System for lab5 of course OSU-CSE5433");
++//MODULE_ALIAS_FS("lab5fs");
++
++
++/* See ext2/super.c#0132 */
++static kmem_cache_t *lab5fs_inode_cachep;
++
++/* release a data block, return 0 if success */
++int lab5fs_release_block(struct super_block *sb, int block_num) {
++    printk("[%s]\n", __FUNCTION__);
++    struct lab5fs_sb_info* lab5fs_sb_info = (struct lab5fs_sb_info*) sb->s_fs_info;
++    struct buffer_head *sbh = lab5fs_sb_info->s_sbh;
++    struct lab5fs_sb *lab5fs_sb = (struct lab5fs_sb *) sbh->b_data;
++    struct lab5fs_data_block_bitmap *lab5fs_db_bitmap = lab5fs_sb_info->s_db_bitmap;
++    int err = 0;
++    
++    printk("[%s] releasing block %lu\n", __FUNCTION__, block_num);
++
++    /* Sanity check in case we are releasing invalid block */
++    if (block_num == 0 || block_num >= LAB5FS_MAX_NUM_DATA_BLOCK) {
++        printk(KERN_ERR, "[%s] trying to release block %lu, which we should not be doing\n", __FUNCTION__, block_num);
++        err = -EINVAL;
++    } else {
++        lock_super(sb);
++
++        /* Mark it as free block in the bitmap */
++        lab5fs_db_bitmap->index[block_num] = 0;
++        
++        lab5fs_sb->s_free_blocks_count++;
++        mark_buffer_dirty(sbh);
++        sb->s_dirt = 1;
++
++        unlock_super(sb);
++    }
++
++    return err;
++}
++
++/*
++ * Allocates a free block number.
++ * returns 0 if no free numbers are available.
++ */
++int lab5fs_alloc_block(struct super_block *sb) {
++    printk("[%s]\n", __FUNCTION__);
++    struct lab5fs_sb_info* lab5fs_sb_info = (struct lab5fs_sb_info*) sb->s_fs_info;
++    struct buffer_head *sbh = lab5fs_sb_info->s_sbh;
++    struct lab5fs_sb *lab5fs_sb = (struct lab5fs_sb *) sbh->b_data;
++    struct lab5fs_data_block_bitmap *lab5fs_db_bitmap = lab5fs_sb_info->s_db_bitmap;
++    int block_num = 0;
++    int i = 0;
++
++    printk("[%s] allocating block\n", __FUNCTION__);
++
++    lock_super(sb);
++
++    /* If there is not more free block, just abort */
++    if (lab5fs_sb->s_free_blocks_count == 0) {
++        printk("[%s] no more free blocks\n", __FUNCTION__);
++        goto fn_exit;
++    }
++    
++    /* Scan the bitmap to find a free block */
++    for (i=0 ; i < LAB5FS_MAX_NUM_DATA_BLOCK && lab5fs_db_bitmap->index[i] == 1 ; i++)
++        ;
++    if (unlikely(i == LAB5FS_MAX_NUM_DATA_BLOCK)) {
++        printk(KERN_ERR, "[%s] No free data blocks, but lab5fs_sb->s_free_blocks_count >0, something is wrong\n", __FUNCTION__);
++        goto fn_exit;
++    } 
++    block_num = i;
++    lab5fs_db_bitmap->index[block_num] = 1; 
++    printk("[%s] got a free block at %lu\n", __FUNCTION__, block_num);
++
++    lab5fs_sb->s_free_blocks_count--;
++    mark_buffer_dirty(sbh);
++    sb->s_dirt = 1;
++
++fn_exit:
++    unlock_super(sb);
++    return block_num + LAB5FS_FIRST_DATA_BLOCK;
++}
++
++/*
++ * Allocates a free inode number
++ * returns 0 if no free numbers are available.
++ */
++int lab5fs_alloc_inode_num(struct super_block *sb) {
++    printk("[%s]\n", __FUNCTION__);
++
++    if (!sb)
++        printk("[%s] sb is null\n", __FUNCTION__);
++
++    struct lab5fs_sb_info* lab5fs_sb_info = (struct lab5fs_sb_info*) sb->s_fs_info;
++    if (!lab5fs_sb_info)
++        printk("[%s] sb_info is null\n", __FUNCTION__);
++
++    struct buffer_head *sbh = lab5fs_sb_info->s_sbh;
++    if (!sbh)
++        printk("[%s] sbh is null\n", __FUNCTION__);
++
++    struct lab5fs_sb *lab5fs_sb = (struct lab5fs_sb *) sbh->b_data;
++    if (!lab5fs_sb)
++        printk("[%s] lab5fs_sb is null\n", __FUNCTION__);
++
++    struct lab5fs_inode_bitmap *lab5fs_ino_bitmap = lab5fs_sb_info->s_ino_bitmap;
++    int inode_num = 0;
++    int i;   
++
++    printk("[%s] allocating inode\n", __FUNCTION__);
++
++    lock_super(sb);
++
++    /* If there is not more free block, just abort */
++    if (lab5fs_sb->s_free_inodes_count == 0) {
++        printk("[%s] no more free inodes\n", __FUNCTION__);
++        goto fn_exit;
++    }
++    
++    /* Scan the bitmap to find a free inode */
++    for (i=0 ; i < LAB5FS_MAX_NUM_INODES && lab5fs_ino_bitmap->index[i] == 1 ; i++)
++        ;
++    if (unlikely(i == LAB5FS_MAX_NUM_INODES)) {
++        printk("[%s] No free data blocks, but lab5fs_sb->s_free_inodes_count >0, something is wrong\n", __FUNCTION__);
++        goto fn_exit;
++    } 
++    inode_num = i;
++    lab5fs_ino_bitmap->index[inode_num] = 1; 
++    printk("[%s] got a free inode at %lu\n", __FUNCTION__, inode_num);
++
++    lab5fs_sb->s_free_inodes_count--;
++    mark_buffer_dirty(sbh);
++    sb->s_dirt = 1;
++
++fn_exit:
++    unlock_super(sb);
++    return inode_num + LAB5FS_ROOT_INO;
++}
++
++/*
++ * release a inode number
++ * returns 0 if success.
++ */
++int lab5fs_release_inode_num(struct super_block *sb, int inode_num) {
++    printk("[%s]\n", __FUNCTION__);
++    struct lab5fs_sb_info* lab5fs_sb_info = LAB5FS_SB(sb);
++    struct buffer_head *sbh = lab5fs_sb_info->s_sbh;
++    //struct lab5fs_sb *lab5fs_sb = (struct lab5fs_sb *) sbh->b_data;
++    struct lab5fs_inode_bitmap *lab5fs_ino_bitmap = lab5fs_sb_info->s_ino_bitmap;
++    int err = 0;
++
++    printk("[%s] releasing inode %lu\n", __FUNCTION__, inode_num);
++
++    /* Sanity check in case we are releasing invalid inode */
++    if (inode_num == 0 || inode_num >= LAB5FS_MAX_NUM_INODES) {
++        printk(KERN_ERR, "[%s] trying to release inode %lu, which we should not be doing\n", __FUNCTION__, inode_num);
++        err = -EINVAL;
++    } else {
++        lock_super(sb);
++
++        /* Mark it as free block in the bitmap */
++        lab5fs_ino_bitmap->index[inode_num - LAB5FS_ROOT_INO] = 0;
++        lab5fs_sb_info->s_free_inodes++;
++        mark_buffer_dirty(sbh);
++        sb->s_dirt = 1;
++
++        unlock_super(sb);
++    }
++
++    return err;
++}
++
++
++struct inode * lab5fs_new_inode (struct super_block *sb, int mode) {
++    printk("[%s]\n", __FUNCTION__);
++    struct inode *child_ino = NULL;
++    ino_t ino_num = 0;
++    int inode_block_num = 0;
++    int bi_block_num = 0;
++    int err = 0;
++
++    /* allocate a free inode number. */
++    ino_num = lab5fs_alloc_inode_num(sb);
++    if (ino_num == 0) {
++        err = -ENOSPC;
++        goto fn_exit;
++    }
++
++    /* allocate a VFS inode object. */
++    child_ino = new_inode(sb);
++    if (!child_ino){
++        printk("[%s] new_inode() failed... inode %lu\n", __FUNCTION__, ino_num);
++        err = -ENOMEM;
++        goto fn_exit;
++    }
++
++    /* allocate a disk block to contain this inode's data. */
++    inode_block_num = lab5fs_alloc_block(sb);
++    if (inode_block_num == 0) {
++        err = -ENOSPC;
++        goto fn_exit;
++    }
++    printk("[%s] new inode will be using block %lu\n", __FUNCTION__, inode_block_num);
++    LAB5FS_I(child_ino)->i_block[0] = inode_block_num;
++    LAB5FS_I(child_ino)->i_ino = ino_num;
++    /* initialize the inode's data. */
++    child_ino->i_ino = LAB5FS_I(child_ino)->i_ino = ino_num;
++    child_ino->i_mode = mode;
++    child_ino->i_nlink = 1;  /* this inode will be stored in a directory,
++                              * so there's at least one link to this inode,
++                              * from that directory. */
++    child_ino->i_size = 0;
++    child_ino->i_blksize = LAB5FS_BLOCK_SIZE;
++    child_ino->i_blkbits = LAB5FS_BSIZE_BITS;
++    child_ino->i_blocks = 0;
++    child_ino->i_uid = current->fsuid;
++    child_ino->i_gid = current->fsgid;
++    child_ino->i_atime = child_ino->i_mtime = child_ino->i_ctime = CURRENT_TIME;
++    atomic_set(&child_ino->i_count, 1);
++    /* Calculate to know which block (sector) this inode at*/
++    //child_ino->i_block_no = LAB5FS_INODES_BLOCK_NUM + (ino_num/LAB5FS_INODES_PER_BLOCK);
++
++    /* set the inode operations structs. */
++    if (S_ISREG(child_ino->i_mode)) {
++        printk("[%s] new file\n", __FUNCTION__);
++        LAB5FS_I(child_ino)->i_vtype = LAB5FS_VREG;
++        child_ino->i_op = &lab5fs_file_inode_ops;
++        child_ino->i_fop = &lab5fs_file_ops;
++        child_ino->i_mapping->a_ops = &lab5fs_aops;
++    }
++    else if (S_ISDIR(child_ino->i_mode)) {
++        printk("[%s] new dir\n", __FUNCTION__);
++        LAB5FS_I(child_ino)->i_vtype = LAB5FS_VDIR;
++        child_ino->i_op = &lab5fs_dir_inode_ops;
++        child_ino->i_fop = &lab5fs_dir_ops;
++        child_ino->i_mapping->a_ops = &lab5fs_aops;
++    }
++
++    insert_inode_hash(child_ino);
++    /* make sure the inode gets written to disk by the inodes cache. */
++    mark_inode_dirty(child_ino);
++
++    /* all went well... */
++
++fn_exit:
++    if (likely(err == 0))
++        return child_ino;
++    else {
++        if (child_ino)
++            iput(child_ino); /* child_ino will be deleted here. */
++        if (ino_num > 0)
++            lab5fs_release_inode_num(sb, ino_num);
++        if (inode_block_num > 0)
++            lab5fs_release_block(sb, inode_block_num);
++
++        return ERR_PTR(err);
++    }
++}
++
++static struct inode * lab5fs_alloc_inode(struct super_block *sb) {
++    printk("[%s] lab5fs allocate inode in the kmemcache\n", __FUNCTION__);
++    struct lab5fs_inode_info *ei;
++    ei = (struct lab5fs_inode_info *) kmem_cache_alloc(lab5fs_inode_cachep, SLAB_KERNEL);
++
++    return (ei) ? &ei->vfs_inode : NULL;
++}
++
++static void lab5fs_destroy_inode(struct inode *inode) {
++    printk("[%s] destroying inode %d\n", __FUNCTION__, inode->i_ino);
++    kmem_cache_free(lab5fs_inode_cachep, LAB5FS_I(inode));
++}
++
++static void lab5fs_read_inode(struct inode *inode) {
++    unsigned long block_num = 0;
++    unsigned long ino = inode->i_ino;                                    
++    struct lab5fs_inode * di;
++    struct buffer_head * bh;
++    int block, off;
++    int i;
++    printk("[%s] lab5fs read inode, ino %lu\n", __FUNCTION__, ino);
++
++    if (ino < LAB5FS_ROOT_INO) {
++        printk("Bad inode number %s:%08lx\n", inode->i_sb->s_id, ino);                
++        make_bad_inode(inode);
++        return;
++    }
++
++    block = (ino - LAB5FS_ROOT_INO)/LAB5FS_INODES_PER_BLOCK + LAB5FS_INODES_BLOCK_NUM;
++    bh = sb_bread(inode->i_sb, block);                                   
++    if (!bh) {
++        printk("Unable to read inode %s:%08lx\n", inode->i_sb->s_id, ino);            
++        make_bad_inode(inode);
++        return;
++    } else
++        printk("read a bh (sb %p, block_num %lu), %p, b_size %lu\n", inode->i_sb, block, bh, bh->b_size);
++
++    off = ((ino - LAB5FS_ROOT_INO) % LAB5FS_INODES_PER_BLOCK) * LAB5FS_INODE_SIZE;
++    printk("[%s] read from block %lu, offset %lu\n", __FUNCTION__, block, off);
++    di = (struct lab5fs_inode *)bh->b_data + off;
++    
++    printk ("inode with mode %lu, vtype %lu\n", di->i_mode, di->i_vtype);
++    //inode->i_mode = 0x0000FFFF & le16_to_cpu(di->i_mode);
++    inode->i_mode = le16_to_cpu(di->i_mode);
++    printk ("inode with updated mode %lu\n", inode->i_mode);
++    
++    if (di->i_vtype == LAB5FS_VDIR) {
++        printk("Read a directory\n");                
++        inode->i_mode |= S_IFDIR;
++        inode->i_op = &lab5fs_dir_inode_ops;
++        inode->i_fop = &lab5fs_dir_ops;
++    } else if (di->i_vtype == LAB5FS_VREG) {
++        printk("Read a file\n");                
++        inode->i_mode |= S_IFREG;
++        inode->i_op = &lab5fs_file_inode_ops;
++        inode->i_fop = &lab5fs_file_ops;
++        inode->i_mapping->a_ops = &lab5fs_aops;                         
++    }
++
++    inode->i_uid = (uid_t) le16_to_cpu(di->i_uid);
++    inode->i_gid = (gid_t) le16_to_cpu(di->i_gid);
++    inode->i_nlink = le16_to_cpu(di->i_nlink);
++    inode->i_size = le32_to_cpu(di->i_size);
++    inode->i_blocks = le32_to_cpu(di->i_blocks); 
++    inode->i_blksize = LAB5FS_BLOCK_SIZE;
++    inode->i_atime.tv_sec = le32_to_cpu(di->i_atime);
++    inode->i_mtime.tv_sec = le32_to_cpu(di->i_mtime);
++    inode->i_ctime.tv_sec = le32_to_cpu(di->i_ctime);
++    inode->i_atime.tv_nsec = 0;
++    inode->i_mtime.tv_nsec = 0;
++    inode->i_ctime.tv_nsec = 0;
++    LAB5FS_I(inode)->i_ino = ino;
++    //LAB5FS_I(inode)->i_last_blk_offset = di->i_last_blk_offset;
++    for (i=0 ; i < LAB5FS_MAX_BLOCKS_PER_FILE; i++) {
++        LAB5FS_I(inode)->i_block[i] = le32_to_cpu(di->i_block[i]);
++        printk("[%s] got block[%d] = %lu [di %lu]\n", __FUNCTION__, i, LAB5FS_I(inode)->i_block[i], di->i_block[i]);
++    }
++    
++    printk("[%s] got size %lu, blocks %lu, blksize %lu, start at block %lu [di %lu]\n", __FUNCTION__, inode->i_size, inode->i_blocks, inode->i_blksize, LAB5FS_I(inode)->i_block[0], di->i_block[0]);
++
++    if(bh)
++        brelse(bh);
++}
++
++static int lab5fs_write_inode(struct inode *inode, int unused) {
++    printk("[%s] writing inode %lu\n", __FUNCTION__, inode->i_ino);
++    unsigned long ino = inode->i_ino;
++    struct lab5fs_inode * di;
++    struct buffer_head * bh;
++    int block, off;
++    int err = 0;
++
++    if (ino < LAB5FS_ROOT_INO) {
++        printk("Bad inode number %s:%08lx\n", inode->i_sb->s_id, ino);
++        err = -EIO;
++        goto fn_exit;
++    }
++
++    lock_kernel();
++    block = (ino - LAB5FS_ROOT_INO)/LAB5FS_INODES_PER_BLOCK + LAB5FS_INODES_BLOCK_NUM;
++    printk("[%s] write to block %lu\n", __FUNCTION__, block);
++    bh = sb_bread(inode->i_sb, block);
++    if (!bh) {
++        printk("Unable to read inode %s:%08lx\n", inode->i_sb->s_id, ino);
++        unlock_kernel();
++        err = -EIO;
++        goto fn_exit;
++    }
++
++    off = ((ino - LAB5FS_ROOT_INO) % LAB5FS_INODES_PER_BLOCK) * LAB5FS_INODE_SIZE;
++    printk("[%s] write to block %lu, offset %lu\n", __FUNCTION__, block, off);
++    di = (struct lab5fs_inode *)bh->b_data + off;
++
++    if (S_ISDIR(inode->i_mode))
++        di->i_vtype = LAB5FS_VDIR;
++    else
++        di->i_vtype = LAB5FS_VREG;
++
++    //di->i_ino = cpu_to_le32(inode->i_ino);
++    di->i_mode = cpu_to_le16(inode->i_mode);
++    di->i_uid = cpu_to_le32(inode->i_uid);
++    di->i_gid = cpu_to_le32(inode->i_gid);
++    di->i_nlink = 1; //cpu_to_le16(inode->i_nlink);
++    //di->i_size = cpu_to_le32(inode->i_size);
++    //di->i_blocks = cpu_to_le32(inode->i_blocks); 
++    di->i_atime = cpu_to_le32(inode->i_atime.tv_sec);
++    di->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
++    di->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
++
++    di->i_blocks = (inode->i_ino == LAB5FS_ROOT_INO) ? 1: 0; 
++    di->i_size = (inode->i_ino == LAB5FS_ROOT_INO) ? LAB5FS_BLOCK_SIZE: 0;
++
++    int i;
++    for (i=0 ; i < LAB5FS_MAX_BLOCKS_PER_FILE ; i++)
++        di->i_block[i] = cpu_to_le32(LAB5FS_I(inode)->i_block[i]);
++    
++    printk("[%s] writing back info: size %lu, blocks %lu, blksize %lu, start at block %lu [di %lu]\n", __FUNCTION__, di->i_size, di->i_blocks, LAB5FS_I(inode)->i_block[0], di->i_block[0]);
++
++    mark_buffer_dirty(bh);
++
++    /* for a synchronous operation - write the buffer immediately. */
++    ll_rw_block(WRITE, 1, &bh);
++    wait_on_buffer(bh);
++    if (buffer_req(bh) && !buffer_uptodate(bh)) {
++        printk("IO error syncing stamfs inode %ld\n", ino);
++        err = -EIO;
++        goto fn_exit;
++    }
++
++fn_exit:
++    brelse(bh);
++    unlock_kernel();
++    printk("[%s] inode written\n", __FUNCTION__);
++    return 0;
++}
++
++/* At the moment this just updates the block bitmap */
++static void lab5fs_release_data_block(struct inode *inode) {
++    printk("[%s] release data block\n", __FUNCTION__);
++    int iblk, block;        
++    struct lab5fs_sb_info *lab5fs_sb_info = LAB5FS_SB(inode->i_sb);
++
++    for (iblk = 0; iblk < LAB5FS_MAX_BLOCKS_PER_FILE; iblk++) {
++        block = LAB5FS_I(inode)->i_block[iblk];
++        if (block != 0) {
++            lab5fs_sb_info->s_db_bitmap->index[block - LAB5FS_FIRST_DATA_BLOCK] = 0;
++        }
++    }
++    printk("[%s] inode truncated\n", __FUNCTION__);
++    return;
++}
++
++/* Free an inode: 
++ * 1) Reset corresponding inode field in the disk sector (i.e., bh)
++ * 2) Release inode and data block number: toggle the inode and data block bitmaps */
++static void lab5fs_free_inode(struct inode *inode) {
++    printk("[%s] freeing inode, ino %lu\n", __FUNCTION__, inode->i_ino);
++    unsigned long ino = inode->i_ino;
++    struct lab5fs_inode * di;
++    struct buffer_head * bh;
++    struct super_block * sb = inode->i_sb;
++    struct lab5fs_sb_info * info = LAB5FS_SB(sb);
++    int block, off;
++
++    if (ino < LAB5FS_ROOT_INO) {
++        printk("Bad inode number %s:%08lx\n", inode->i_sb->s_id, ino);
++        return -EIO;
++    }
++
++    lock_kernel();
++    block = (ino - LAB5FS_ROOT_INO)/LAB5FS_INODES_PER_BLOCK + LAB5FS_INODES_BLOCK_NUM;
++    bh = sb_bread(inode->i_sb, block);
++    if (!bh) {
++        printk("Unable to read inode %s:%08lx\n", inode->i_sb->s_id, ino);
++        unlock_kernel();
++        return -EIO;
++    }
++
++    off = (ino - LAB5FS_ROOT_INO) % LAB5FS_INODES_PER_BLOCK;
++    printk("[%s] read from block %lu, off %lu\n", __FUNCTION__, block, off);
++    di = (struct lab5fs_inode *)bh->b_data + off;
++    
++    if (di->i_ino) {
++        info->s_free_blocks += di->i_blocks;
++        info->s_free_inodes++;
++        /* Clear bitmap */
++        lab5fs_release_inode_num(inode->i_sb, LAB5FS_I(inode)->i_ino);
++        lab5fs_release_data_block(inode);
++    }
++    /* Reset */
++    di->i_ino = 0;
++    di->i_blocks = 0;
++    mark_buffer_dirty(bh);
++    brelse(bh);
++
++    unlock_kernel();
++
++    printk("[%s] inode freed\n", __FUNCTION__);
++    return;
++}
++
++/* Delete an inode in the disk sector */
++static void lab5fs_delete_inode(struct inode *inode) {
++    printk("[%s] lab5fs delete inode\n", __FUNCTION__);
++    if (!is_bad_inode(inode)) {
++        inode->i_size = 0;
++        inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
++        mark_inode_dirty(inode);
++        
++        lab5fs_free_inode(inode);
++    }
++    clear_inode(inode);
++    printk("[%s] inode deleted\n", __FUNCTION__);
++}
++
++/* Write back super block to disk sector: mark the buffer head as 'dirty' */
++static void lab5fs_write_super(struct super_block *sb) {
++    printk("[%s] writing super block\n", __FUNCTION__);
++    lock_kernel();
++    if (!(sb->s_flags & MS_RDONLY)) {
++        mark_buffer_dirty(LAB5FS_SB(sb)->s_sbh);
++        mark_buffer_dirty(LAB5FS_SB(sb)->s_bh_ino);
++        mark_buffer_dirty(LAB5FS_SB(sb)->s_bh_db);
++    }
++    sb->s_dirt = 0;
++    unlock_kernel();
++    printk("[%s] super block written\n", __FUNCTION__);
++}
++
++/* Clean-up/remove the super block: free/release all the resouces */
++static void lab5fs_put_super(struct super_block *sb) {
++    printk("[%s]\n", __FUNCTION__);
++    struct lab5fs_sb_info *info = LAB5FS_SB(sb);
++    brelse(info->s_sbh);
++    brelse(info->s_bh_ino);
++    brelse(info->s_bh_db);
++    kfree(info);
++    sb->s_fs_info = NULL;
++    printk("[%s] freed/released everything\n", __FUNCTION__);
++}
++
++static int lab5fs_statfs(struct super_block *s, struct kstatfs *buf)
++{
++        struct lab5fs_sb_info *info = LAB5FS_SB(s);
++        u64 id = huge_encode_dev(s->s_bdev->bd_dev);
++        buf->f_type = LAB5FS_MAGIC_NUMBER;
++        buf->f_bsize = s->s_blocksize;
++        buf->f_blocks = LAB5FS_MAX_NUM_DATA_BLOCK; //info->s_blocks;
++        buf->f_bfree = buf->f_bavail = info->s_free_blocks;
++        buf->f_files = LAB5FS_MAX_NUM_INODES - info->s_free_inodes;
++        buf->f_ffree = info->s_free_inodes;
++        buf->f_fsid.val[0] = (u32)id;
++        buf->f_fsid.val[1] = (u32)(id >> 32);
++        buf->f_namelen = LAB5FS_NAME_LEN;
++        return 0;
++}
++
++static struct super_operations const lab5fs_super_ops = {
++    .alloc_inode    = lab5fs_alloc_inode,
++    .destroy_inode  = lab5fs_destroy_inode,
++    .read_inode	    = lab5fs_read_inode,
++    .write_inode    = lab5fs_write_inode,
++    .delete_inode   = lab5fs_delete_inode,
++    //.clear_inode    = lab5fs_clear_inode,
++    .write_super    = lab5fs_write_super,
++    .put_super      = lab5fs_put_super,
++    .statfs         = lab5fs_statfs,
++};
++
++static int lab5fs_fill_super(struct super_block *sb, void *data, int silent)
++{
++    printk("[%s]\n", __FUNCTION__);
++    struct buffer_head * bh;
++    struct inode * inode;
++    struct dentry * root;
++    struct lab5fs_sb *lab5fs_sb;
++    struct lab5fs_sb_info * info;
++
++    info = kmalloc(sizeof(*info), GFP_KERNEL);
++    if (!info)
++        return -ENOMEM;
++    sb->s_fs_info = info;
++    memset(info, 0, sizeof(*info));
++
++    sb->s_maxbytes = MAX_LFS_FILESIZE;
++
++    sb_set_blocksize(sb, LAB5FS_BLOCK_SIZE);
++    
++    /* Fill up in-memory super block */
++    bh = sb_bread(sb, LAB5FS_SUPER_BLOCK_NUM);
++    if(!bh)
++        return -ENOMEM;
++  
++    info->s_sbh = bh;
++    lab5fs_sb = (struct lab5fs_sb *)bh->b_data;
++    if (lab5fs_sb->s_magic != LAB5FS_MAGIC_NUMBER) {
++        printk("No LAB5FS filesystem on %s (magic=%08x)\n",
++                    sb->s_id, lab5fs_sb->s_magic);
++        return -EINVAL;
++    }
++    info->s_free_blocks = LAB5FS_MAX_NUM_DATA_BLOCK - lab5fs_sb->s_blocks_count;
++    info->s_free_inodes = LAB5FS_MAX_NUM_INODES - lab5fs_sb->s_inodes_count;
++    info->s_last_data_block = lab5fs_sb->s_last_data_block;
++
++    sb->s_blocksize_bits = LAB5FS_BSIZE_BITS;
++    sb->s_magic = LAB5FS_MAGIC_NUMBER;
++    sb->s_op = &lab5fs_super_ops;
++
++    /* Read inode bitmap */
++    bh = sb_bread(sb, LAB5FS_INODES_BITMAP_BLOCK_NUM);
++    if(!bh)
++        return -ENOMEM;
++
++    info->s_bh_ino = bh;
++    info->s_ino_bitmap = (struct lab5fs_inode_bitmap *)bh->b_data;
++
++    /* Read data block bitmap */
++    bh = sb_bread(sb, LAB5FS_DATA_BLOCK_BITMAP_BLOCK_NUM);
++    if(!bh)
++        return -ENOMEM;
++    info->s_bh_db = bh;
++    info->s_db_bitmap = (struct lab5fs_data_block_bitmap *)bh->b_data;
++
++    /* Get root inode through iger, i.e., lab5fs_read_inode */
++    inode = iget(sb, LAB5FS_ROOT_INO);
++    if (!inode) {
++        printk(KERN_ERR "Failed to get inode\n");
++        return -ENOMEM;
++    }
++
++    printk("[%s] root_inode->i_list = %p    i_list.next = %p\n", __FUNCTION__, inode->i_list, inode->i_list.next);
++
++    root = d_alloc_root(inode);
++    if (!root) {
++        printk(KERN_ERR "Failed to make/create root\n");
++        //iput(inode);
++        return -ENOMEM;
++    }
++    sb->s_root = root;
++
++    if (!sb->s_root) {
++        printk(KERN_ERR "LAB5FS: get root inode failed\n");
++        return -ENOMEM;
++    }
++
++    printk("[%s] super block filled\n", __FUNCTION__);
++    return 0;
++}
++
++// Refer to fs/ramdfs/inode.c and fs/ext2/super.c
++static struct super_block *lab5fs_get_sb(struct file_system_type *fs_type,
++	int flags, const char *dev_name, void *data)
++{
++    printk(KERN_INFO "[%s] Getting lab5fs superblock\n", __FUNCTION__);
++    return get_sb_bdev(fs_type, flags, dev_name, data, lab5fs_fill_super);
++}
++
++static struct file_system_type lab5fs_fs_type = {
++	.owner		= THIS_MODULE,
++	.name		= "lab5fs",
++	.get_sb		= lab5fs_get_sb,
++	.kill_sb	= kill_block_super,
++        .fs_flags	= FS_REQUIRES_DEV,
++};
++
++/* Reference ext2/super.c */
++static void init_once (void *foo, kmem_cache_t *cachep, unsigned long flags) {
++    struct lab5fs_inode_info *ei = (struct lab5fs_inode_info *) foo;
++
++    if ((flags & (SLAB_CTOR_VERIFY|SLAB_CTOR_CONSTRUCTOR)) ==
++         SLAB_CTOR_CONSTRUCTOR) {
++         inode_init_once(&ei->vfs_inode);
++    }
++}
++
++static int init_inodecache() {
++    printk("[%s] Attempting to initialize inode cache\n", __FUNCTION__);
++    lab5fs_inode_cachep = kmem_cache_create("lab5fs_inode_cache",
++                          sizeof(struct lab5fs_inode_info),
++                          0, SLAB_RECLAIM_ACCOUNT,
++                          init_once, NULL);
++
++    if (lab5fs_inode_cachep == NULL)
++        return -ENOMEM;
++    return 0;
++}
++
++static void destroy_inodecache() {
++    if (kmem_cache_destroy(lab5fs_inode_cachep))
++        printk(KERN_INFO "lab5fs_inode_cache: not all structures were freed\n");
++}
++
++static int __init lab5fs_init(void) {
++    int ret = 0, err = 0;
++    printk(KERN_INFO "Hello world! from lab5fs\n");
++
++    err = init_inodecache();
++
++    if (err) {
++        printk(KERN_ERR "Failed to initalize inode cache\n");
++	return err;
++    }
++
++    ret = register_filesystem(&lab5fs_fs_type);
++
++    if (likely(ret == 0))
++        printk(KERN_INFO "Sucessfully registered lab5fs\n");
++    else {
++        printk(KERN_ERR "Failed to register lab5fs. Error:[%d]\n", ret);
++        destroy_inodecache();
++    }
++
++    return ret;    // Non-zero return means that the module couldn't be loaded.
++}
++
++static int __exit lab5fs_exit(void) {
++    int ret = 0;
++    printk(KERN_INFO "Cleaning up lab5fs module.\n");
++
++
++    ret = unregister_filesystem(&lab5fs_fs_type);
++
++    destroy_inodecache();
++
++    if (likely(ret == 0))
++        printk(KERN_INFO "Sucessfully unregistered lab5fs\n");
++    else
++        printk(KERN_ERR "Failed to unregister lab5fs. Error:[%d]\n", ret);
++
++    return ret;    // Non-zero return means something is wrong
++}
++
++module_init(lab5fs_init);
++module_exit(lab5fs_exit);
+diff --git a/include/linux/lab5fs.h b/include/linux/lab5fs.h
+new file mode 100644
+index 0000000..fc2e38b
+--- /dev/null
++++ b/include/linux/lab5fs.h
+@@ -0,0 +1,102 @@
++/*
++ *	include/linux/lab5fs.h - LAB5 data structures on disk.
++ */
++#ifndef _LINUX_LAB5_FS_H
++#define _LINUX_LAB5_FS_H
++
++/* hard-coded block numbers for storing super-block, inode bitmap, data block bitmap and inode table */
++#define LAB5FS_SUPER_BLOCK_NUM 1
++#define LAB5FS_INODES_BITMAP_BLOCK_NUM (LAB5FS_SUPER_BLOCK_NUM+1)
++#define LAB5FS_DATA_BLOCK_BITMAP_BLOCK_NUM (LAB5FS_INODES_BITMAP_BLOCK_NUM+1)
++#define LAB5FS_INODES_BLOCK_NUM (LAB5FS_DATA_BLOCK_BITMAP_BLOCK_NUM+1)
++/*
++ * Special inode numbers
++ */
++#define LAB5FS_MAGIC_NUMBER 0x1AABBABC  /* Use some random number for MAGIC number */
++#define LAB5FS_BAD_INO      1           /* Bad blocks inode */
++#define LAB5FS_ROOT_INO	    2           /* Root inode*/
++
++/* 
++ * limits 
++ */
++/* 1024 bytes per block */
++#define LAB5FS_BSIZE_BITS   10
++#define LAB5FS_BLOCK_SIZE   (1<<LAB5FS_BSIZE_BITS)
++
++/* Maximum is 1024 files/directories */
++#define LAB5FS_MAX_NUM_INODES 1024
++/* assuming 1KB per block, so we support maximum 16KB for a single file 
++ * note that one inode can associate with multiple data blocks (contiguous or non-contiguous) */
++#define LAB5FS_MAX_BLOCKS_PER_FILE 16 
++
++/* Each inode is 128 bytes, so each block can contain 1024/128 inodes, this can be tuned */
++#define LAB5FS_INODE_SIZE   128
++#define LAB5FS_INODES_PER_BLOCK	(LAB5FS_BLOCK_SIZE / LAB5FS_INODE_SIZE)
++#define LAB5FS_MAX_INODE_COUNT ((LAB5FS_BLOCK_SIZE / LAB5FS_INODE_SIZE) - 1)
++#define LAB5FS_MAX_BLOCK_NUMS_PER_BLOCK (LAB5FS_BLOCK_SIZE / LAB5FS_INODE_SIZE - 1)
++
++#define LAB5FS_MAX_NUM_BLOCKS 1024
++#define LAB5FS_FIRST_DATA_BLOCK LAB5FS_INODES_BLOCK_NUM + (LAB5FS_MAX_NUM_INODES/LAB5FS_INODES_PER_BLOCK)
++#define LAB5FS_MAX_NUM_DATA_BLOCK (LAB5FS_MAX_NUM_BLOCKS - LAB5FS_FIRST_DATA_BLOCK)
++
++#define LAB5FS_NAME_LEN		55  /* 64 - 9 bytes, see struct lab5fs_direntry */
++#define LAB5FS_DIRENT_SIZE	64
++#define LAB5FS_DIRS_PER_BLOCK	(LAB5FS_BLOCK_SIZE / LAB5FS_DIRENT_SIZE)
++
++/* SVR4 vnode type values (DIR or FILE) */
++#define LAB5FS_VDIR                2
++#define LAB5FS_VREG                1
++
++/* LAB5 inode layout on disk, 128 bytes */
++struct lab5fs_inode {
++    uint16_t i_ino;     /* inode number*/
++    uint16_t i_mode;	/* File mode, uint16_t */
++    uint16_t i_gid;	/* Low 16 bits of Group Id, uint16_t */
++    uint16_t i_uid;	/* Low 16 bits of Owner Uid, uint16_t */
++    uint32_t i_size;	/* Size in bytes, uint32_t */
++    uint32_t i_blocks;	/* Blocks count, uint32_t */
++    uint32_t i_vtype;   /* type of inode, DIR or FILE */
++    uint32_t i_nlink;   /* Link_count, Number of active links to this inode */
++    uint32_t block_no;  /* Block number of inode */
++    //uint32_t i_last_blk_offset; /* Offset of the data in the last block of this file/dir */
++    uint32_t i_atime;	/* Access time, uint32_t */
++    uint32_t i_ctime;	/* Creation time, uint32_t */
++    uint32_t i_mtime;	/* Modification time, uint32_t */
++    uint32_t i_dtime;	/* Deletion Timem uint32_t */
++    uint32_t i_block[LAB5FS_MAX_BLOCKS_PER_FILE];   /* Pointers to blocks, uint32_t */
++    uint32_t i_padding[5];                          /* To make it align to 128-byte long */
++};
++
++/* To indicate the status of data blocks: 0: free, 1: used. This is just 1KB (i.e., fit one block) */
++struct lab5fs_data_block_bitmap {
++    uint8_t index[LAB5FS_MAX_NUM_BLOCKS];
++};
++
++/* To indicate the status of data blocks: 0: free, 1: used. This is just 1KB (i.e., fit one block) */
++struct lab5fs_inode_bitmap {
++    uint8_t index[LAB5FS_MAX_NUM_INODES];
++};
++
++/* can be used to represent a dir or file */
++struct lab5fs_direntry {
++    uint32_t inode;             /* Inode number */
++    uint16_t rec_len;           /* Actual Directory entry length, uint16_t*/
++    uint16_t name_len;          /* Name Length, uint16_t */
++    uint8_t ftype;              /* File or DIR */
++    char name[LAB5FS_NAME_LEN]; /* File name */
++};
++
++/* LAB5 superblock layout on disk */
++struct lab5fs_sb {
++    uint32_t s_inodes_count;
++    uint32_t s_blocks_count;
++    uint32_t s_free_blocks_count;
++    uint32_t s_free_inodes_count;
++    uint32_t s_first_data_block;
++    uint32_t s_last_data_block;
++    uint32_t s_block_size;
++    uint32_t s_magic;
++    uint32_t padding[248]; /* To fill up a single block, i.e. LAB5FS_BLOCK_SIZE, 1024 bytes in our case */
++};
++
++#endif	/* _LINUX_LAB5_FS_H */

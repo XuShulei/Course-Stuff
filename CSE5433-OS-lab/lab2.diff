@@ -1,0 +1,129 @@
+diff -Naur linux-2.6.9-default/arch/i386/kernel/entry.S linux-2.6.9lab2/arch/i386/kernel/entry.S
+--- linux-2.6.9-default/arch/i386/kernel/entry.S	2004-10-18 17:53:44.000000000 -0400
++++ linux-2.6.9lab2/arch/i386/kernel/entry.S	2017-09-16 03:16:47.000000000 -0400
+@@ -901,5 +901,6 @@
+ 	.long sys_mq_getsetattr
+ 	.long sys_ni_syscall		/* reserved for kexec */
+ 	.long sys_waitid
++	.long sys_mycounter	/* 285 */
+ 
+ syscall_table_size=(.-sys_call_table)
+diff -Naur linux-2.6.9-default/include/asm-i386/unistd.h linux-2.6.9lab2/include/asm-i386/unistd.h
+--- linux-2.6.9-default/include/asm-i386/unistd.h	2004-10-18 17:54:37.000000000 -0400
++++ linux-2.6.9lab2/include/asm-i386/unistd.h	2017-09-16 04:20:33.000000000 -0400
+@@ -290,8 +290,9 @@
+ #define __NR_mq_getsetattr	(__NR_mq_open+5)
+ #define __NR_sys_kexec_load	283
+ #define __NR_waitid		284
++#define __NR_mycounter		285
+ 
+-#define NR_syscalls 285
++#define NR_syscalls 286
+ 
+ /* user-visible error numbers are in the range -1 - -124: see <asm-i386/errno.h> */
+ 
+@@ -444,7 +445,6 @@
+ 				const struct sigaction __user *act,
+ 				struct sigaction __user *oact,
+ 				size_t sigsetsize);
+-
+ #endif
+ 
+ /*
+diff -Naur linux-2.6.9-default/include/linux/syscalls.h linux-2.6.9lab2/include/linux/syscalls.h
+--- linux-2.6.9-default/include/linux/syscalls.h	2004-10-18 17:55:36.000000000 -0400
++++ linux-2.6.9lab2/include/linux/syscalls.h	2017-09-16 03:35:42.000000000 -0400
+@@ -491,4 +491,6 @@
+ asmlinkage long sys_uselib(const char __user *library);
+ asmlinkage long sys_ni_syscall(void);
+ 
++asmlinkage long sys_mycounter(unsigned long*);
++
+ #endif
+diff -Naur linux-2.6.9-default/include/linux/sysctl.h linux-2.6.9lab2/include/linux/sysctl.h
+--- linux-2.6.9-default/include/linux/sysctl.h	2004-10-18 17:54:31.000000000 -0400
++++ linux-2.6.9lab2/include/linux/sysctl.h	2017-09-16 09:37:03.000000000 -0400
+@@ -134,6 +134,7 @@
+ 	KERN_SPARC_SCONS_PWROFF=64, /* int: serial console power-off halt */
+ 	KERN_HZ_TIMER=65,	/* int: hz timer on or off */
+ 	KERN_UNKNOWN_NMI_PANIC=66, /* int: unknown nmi panic flag */
++	KERN_MYCOUNTER=67,
+ };
+ 
+ 
+diff -Naur linux-2.6.9-default/kernel/Makefile linux-2.6.9lab2/kernel/Makefile
+--- linux-2.6.9-default/kernel/Makefile	2004-10-18 17:53:43.000000000 -0400
++++ linux-2.6.9lab2/kernel/Makefile	2017-09-16 00:09:16.000000000 -0400
+@@ -7,7 +7,7 @@
+ 	    sysctl.o capability.o ptrace.o timer.o user.o \
+ 	    signal.o sys.o kmod.o workqueue.o pid.o \
+ 	    rcupdate.o intermodule.o extable.o params.o posix-timers.o \
+-	    kthread.o
++	    kthread.o mycounter.o
+ 
+ obj-$(CONFIG_FUTEX) += futex.o
+ obj-$(CONFIG_GENERIC_ISA_DMA) += dma.o
+diff -Naur linux-2.6.9-default/kernel/mycounter.c linux-2.6.9lab2/kernel/mycounter.c
+--- linux-2.6.9-default/kernel/mycounter.c	1969-12-31 19:00:00.000000000 -0500
++++ linux-2.6.9lab2/kernel/mycounter.c	2017-09-16 10:14:42.000000000 -0400
+@@ -0,0 +1,20 @@
++#include <linux/unistd.h>
++#include <linux/linkage.h>
++
++_syscall1(long, mycounter, unsigned long*, ct);
++
++extern int mycounter_var;
++
++asmlinkage long sys_mycounter(unsigned long *ct) {
++    unsigned long tmp;
++    copy_from_user(&tmp, ct, sizeof(unsigned long));
++
++    if (0 == mycounter_var) {
++        tmp += 1;
++    } else if (1 == mycounter_var) {
++        tmp *= 2;
++    }
++
++    copy_to_user(ct, &tmp, sizeof(unsigned long));
++    return 0;
++}
+diff -Naur linux-2.6.9-default/kernel/sysctl.c linux-2.6.9lab2/kernel/sysctl.c
+--- linux-2.6.9-default/kernel/sysctl.c	2004-10-18 17:53:13.000000000 -0400
++++ linux-2.6.9lab2/kernel/sysctl.c	2017-09-16 09:37:35.000000000 -0400
+@@ -44,6 +44,9 @@
+ #include <asm/uaccess.h>
+ #include <asm/processor.h>
+ 
++int mycounter_var;
++EXPORT_SYMBOL(mycounter_var);
++
+ #ifdef CONFIG_ROOT_NFS
+ #include <linux/nfs_fs.h>
+ #endif
+@@ -305,6 +308,14 @@
+ 		.mode		= 0600,
+ 		.proc_handler	= &proc_dointvec_bset,
+ 	},
++	{
++		.ctl_name	= KERN_MYCOUNTER,
++		.procname	= "mycounter",
++		.maxlen		= sizeof(int),
++		.mode		= 0644,
++		.data		= &mycounter_var,
++		.proc_handler	= &proc_dointvec,
++	},
+ #ifdef CONFIG_BLK_DEV_INITRD
+ 	{
+ 		.ctl_name	= KERN_REALROOTDEV,
+diff -Naur linux-2.6.9-default/Makefile linux-2.6.9lab2/Makefile
+--- linux-2.6.9-default/Makefile	2004-10-18 17:54:38.000000000 -0400
++++ linux-2.6.9lab2/Makefile	2017-09-15 23:40:31.000000000 -0400
+@@ -1,7 +1,7 @@
+ VERSION = 2
+ PATCHLEVEL = 6
+ SUBLEVEL = 9
+-EXTRAVERSION =
++EXTRAVERSION = lab2
+ NAME=Zonked Quokka
+ 
+ # *DOCUMENTATION*

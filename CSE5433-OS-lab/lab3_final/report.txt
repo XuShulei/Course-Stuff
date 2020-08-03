@@ -1,0 +1,68 @@
+=================================================================
+CSE 5433 Operating System Lab
+
+Report of Lab3 – Implementing the Fair-Share Scheduling Policy 
+
+Authors: Eric Hemphill, Yi-Chun Chen and Ching-Hsiang Chu
+Email: {hemphill.39, chen.7508, chu.368}@osu.edu
+=================================================================
+
+============================
+1.  Fair-Share Scheduling
+============================
+a.  Design
+    The goal of Fair-Share (FS) scheduling is to give each user an equal amount of CPU time, and each fair-share scheduled process for each user an equal division of that CPU time. The scheduler was designed to keep track of the number of minor users and their processes that have fair-share scheduling enabled. On each scheduler_tick, the time slice for each fair-share scheduled process is recalculated by dividing a default amount of time slice (DEF_TIMESLICE) by the number of users with fair-share scheduled processes, and then divide that by the number of fair-share scheduled processes belonging to that user, the calculation is shown below.
+
+    TimeSlice = (DEF_TIMESLICE * (Number of process of this user)) / (Number of active user)
+
+    The most challenging part of designing the FS scheduler, therefore, is keeping track of the number of processes belonging to each active user.  To address this, FS scheduler maintains a linked list, where each entry represents a unique active user (using uid to differentiate) using FS scheduler. Here we also track the number of active processes each user executed. Each time a process has its scheduler set to fair-share or a process with fair-share scheduling is created (i.e., through system call ‘fork’), the scheduler updates the linked list to add a new user entry or increment the number of processes belonging to the existing user that started the process. In this way, when the time slice of a process needs to be recalculated, the scheduler can do so in constant time.
+b.  Implementation
+The scheduler is implemented on top of the existing Linux scheduler with minimal changes to existing scheduler responsibilities.  Each fair-share scheduled process will still enter and exit the priority queue, and be chosen by the schedule() method based on the process’ priority. However, each fair-share scheduled has a time slice, therefore the time slice will finish before another fair-share scheduled process is picked up by the scheduler.
+    The implementation of the scheduler begins with the introduction of SCHED_FS, a new scheduling policy added to sched.h. Each process that uses fair-share scheduling will have a policy of SCHED_FS. Next, a struct is introduced to create a linked list of users and the number of SCHED_FS processes they have.  A pointer to the head of the list is in sched.c. The structure can be seen below.
+
+typedef struct FS_info {
+    uid_t uid; // the id of a user
+    atomic_t np; // the number of SCHED_FS processes belonging to this user
+    struct FS_info *next; // the next FS_info in the list
+} FS_info;
+    
+When a user starts their first SCHED_FS process, a FS_info object is added to the list with the number of processes initialized to 1. Additionally, a variable of atomic_t called FS_nUsers is incremented by 1. FS_nUsers keeps track of the number of users with active SCHED_FS processes. Whenever a process is assigned the SCHED_FS policy or a process is started with the SCHED_FS policy, the FS_info belonging to the owner of the process has its np incremented by one. Whenever a SCHED_FS process exits, the FS_info belonging to the owner of that process is decremented by one. If np of any FS_info struct reaches 0, FS_nUsers is decremented by one. In this way, the number of users actively using SCHED_FS is always known. Helper functions were added to make modifying the linked list simple. The prototypes of the functions can be seen below.
+
+extern void add_FS_process(uid_t uid); // increment np of FS_info with uid
+extern void decr_FS_process(uid_t uid); // decrement np of FS_info with uid
+struct FS_info * get_FS_user_info(uid_t uid); // get particular FS_info
+int get_FS_np(uid_t uid); // return number of SCHED_FS processes of that user
+struct FS_info * add_FS_user(uid_t uid); // add a user to the list
+    
+The list is modified in several places. Any place that a process can be started, stopped, or change scheduler must be able to update the number of processes for that user.  A process can be created with SCHED_FS policy in the do_fork() method inside fork.c. In do_fork(), if the policy of the process is SCHED_FS and FS scheduling is enabled, add_FS_process() is called. Additionally, in the setscheduler() function in sched.c, if the policy being assigned to the process is SCHED_FS, add_FS_process() is called.  In this way, all process creation is covered and the list of SCHED_FS processes is kept up to date. Similarly, in the do_exit() function if a process exits that has a policy of SCHED_FS, the decr_FS_process() function is called. 
+Perhaps the most important part of the scheduler is how it assigns the correct time slice to each SCHED_FS process. The task_timeslice() function was modified to account for SCHED_FS processes.. In task_timeslice(), if a process has a policy of SCHED_FS, its new timeslice is calculated by passing the number of active users and the number of processes belonging to this particular user to a macro called SCALE_FS.  SCALE_FS uses the ideas mentioned earlier for defining the correct time slice. The definition of SCALE_FS can be seen below.
+
+#define SCALE_FS(nUser, nProc)   ((DEF_TIMESLICE / nUser) / nProc)
+
+    Finally, a system call was added to the kernel called FSsched(), the prototype can be seen below.  FSsched() will enable Fair-share scheduling if flag>0 and disable fair-share scheduling if flag = 0.
+asmlinkage long sys_FSsched(unsigned int flag)
+
+============================
+2.  Kernel Profiling
+============================
+      To understand the scheduler’s behavior, we need to look at the function ‘schedule’ (at kernel/sched.c), which is the main scheduler function. There are mainly three parts in function ‘schedule’, 1) need_resched, 2) go_idle, and 3) switch_tasks. Since the information we desired is when a process gets scheduled in or out, so we focus on the third part ‘switch_tasks. We have tried to dump the data into a new file, however, it causes hang when writing data within the scheduler function (and it seems to be a bad idea according to http://www.linuxjournal.com/article/8110?page=0,1). Alternatively, we use ‘printk’ to dump the relevant statistics, which can be accessed through the log file stored in ‘/var/log/messages’. The code can be written as follows.
+
+if (enableProf) {
+if (prev->policy == SCHED_FS)
+                    printk("[FS] [%s in %s] timestamp %llu user %d pid %d with policy %lu, timeslice %d gets scheduled OUT\n", __FUNCTION__, __FILE__, now, prev->uid, prev->pid, prev->policy, prev->time_slice);
+               if (next->policy == SCHED_FS)
+                printk("[FS] [%s in %s] timestamp %llu user %d pid %d with policy %lu, timeslice %d gets scheduled IN\n", __FUNCTION__, __FILE__, now, next->uid, next->pid, next->policy, next->time_slice);
+}
+where ‘prev’ and ‘next’ indicate the task (or process) being scheduled in and out, respectively. The log file looks like as follows.
+
+Oct 11 08:57:03 cse5433-vm3 kernel: [FS] [schedule in kernel/sched.c] timestamp 4294730169000000 user 501 pid 2287 with policy 3, timeslice 47 gets scheduled OUT
+Oct 11 08:57:03 cse5433-vm3 kernel: [FS] [schedule in kernel/sched.c] timestamp 4294730169000000 user 501 pid 2287 with policy 3, timeslice 47 gets scheduled IN
+
+    Some key words like ‘[FS]’ will be used for the user-level data process. Similarly, we have implemented a new system call ‘enableProfiling’ to enable or disable the scheduler profiling function.
+
+============================
+3.  User-level Data Process
+============================
+    We use AWK (https://en.wikipedia.org/wiki/AWK) to process the profiling data. We first scan the log file (/var/log/messages), filter out the lines with keyword “[FS]” and redirect these lines into a new file ‘fs_only_log.txt’. Next, we go through line-by-line and calculate the CPU time for each user and process. 
+    Finally, we can output a table-like messages into the console to know if the FS scheduler is working as expected.
+

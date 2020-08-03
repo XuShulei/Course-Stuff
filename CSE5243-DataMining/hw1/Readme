@@ -1,0 +1,22 @@
+*****
+Author: Ching-Hsiang Chu
+Email: chu.368@osu.edu
+*****
+
+1. Make sure the R is installed in the system.
+
+2. Make sure the input dataset "Iris.csv" and "income_NEW.csv" 
+   is in the same directory as the source code I submitted.
+
+3. For the IRIS dataset, run
+
+Rscripts testIRIS.r
+
+For the income dataset, run
+
+Rscripts testIncome.r
+
+The corresponding .csv file will be created.
+
+Note that the second program (testIncome.r) might take 
+around 6 mins to complete. (tested on stdlinux)

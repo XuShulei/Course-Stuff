@@ -1,0 +1,203 @@
+=================================================================
+CSE 5433 Operating System Lab
+
+Report of Lab5 - File system
+
+Authors:, Ching-Hsiang Chu, Yi-Chun Chen and Eric Hemphill
+Email: {chu.368, chen.7508, hemphill.39}@osu.edu
+=================================================================
+
+NOTE: All implmentaions are based on Linux kernel v2.6.9
+
+=============
+I) Implementation
+=============
+
+a) Formatting the file system
+The first step to making a usable filesystem is to be able to format a disk to be that type of 
+filesystem. We created a user program called mkfslab5 that will write the necessary data structures to 
+the disk to be a lab5 filesystem. The user program starts by initializing the crucial data structures 
+such as the superblock, the inode and block bitmaps, an inode to be the root directory, and a direntry 
+for the root inode. The program writes each data structure in the order that is designed, so it writes 
+a block for the superblock, a block for each bitmap, formats the inode table, and then writes the root 
+inode and direntry to disk. The writing is done using the write() system call. After formatting the 
+disk image, we must mount the disk.
+
+b) Mounting
+A crucial part of mounting a filesystem is the get_sb() function. The get_sb() function should return a 
+pointer to a superblock containing information about the device. Our get_sb() function uses sb_bread() 
+to read the first block from the device and initialize a superblock object. The superblock object is 
+filled with information about free inodes and blocks, and is initialized with pointers to buffers 
+containing the inode and block bitmap. Additionally, the root inode is read from disk and initialized 
+in the dcache. The root inode is the inode for the “/” directory. 
+
+c) Allocating Blocks and Inodes
+Allocating blocks and inodes is a very important process for filesystems. When the OS calls to create a 
+file, the filesystem needs to respond with a new inode and place to store that inode on the disk. 
+Additionally, if there isn’t enough room on the disk, the filesystem should let the user know. The 
+inode and blocks bitmap are crucial to quickly allocating blocks and inodes. When the OS calls for a 
+new inode, an inode is initialized in memory using lab5fs_new_inode(). The new inode is assigned a 
+unique inode number by scanning the inode bitmap and finding an index which is not taken. The inode 
+bitmap and inode table is updated and their buffers marked as dirty so that they are written back to 
+the disk. A similar process used to allocate blocks. When a file needs another data block, the data 
+block bitmap is scanned, updated, and the index of the first blank entry is returned. The inode then 
+has access to that block to store its data.  When inodes are released, the inode tables and data blocks 
+are written to disk and the in memory inodes are released from memory.
+
+d) Linking and Unlinking
+In memory and on disk inodes include a member called i_nlink which keeps track of the number of 
+references to the inode. When a new link is established, the i_nlink of the inode is incremented and a 
+new dentry is created for the link. Unlinking is a similar process. When a file is unlinked, the dentry 
+is erased and the i_nlink counter is decremented. 
+
+e) Limitations
+
+Known Bugs
+
+Disk Layout:
+
+Each block is 1024 bytes, Each Inode is 128 bytes
+
+---------------------------------------------
+Block 0: super block
+---------------------------------------------
+Block 1: Inode bitmap
+---------------------------------------------
+Block 2: data-block bitmap
+---------------------------------------------
+Block 3-130: Inode Table (8 inodes per block, across 128 blocks)
+---------------------------------------------
+Block 131+: Data blocks (dentry, data...)
+---------------------------------------------
+
+The first block of the device will be the super block. The super block data structure includes
+32-bit integers that represent total inode count, the total block count, the free blocks count, the
+free inodes count, the index of the first data block, the index of the last data block, the block
+size in bytes, a magic number to identify this filesystem, and padding to make the structure fill a
+whole block. The structure can be seen below.
+
+/* LAB5 superblock layout on disk */
+struct lab5fs_sb {
+    uint32_t s_inodes_count;
+    uint32_t s_blocks_count;
+    uint32_t s_free_blocks_count;
+    uint32_t s_free_inodes_count;
+    uint32_t s_first_data_block;
+    uint32_t s_last_data_block;
+    uint32_t s_block_size;
+    uint32_t s_magic;
+    uint32_t padding[248]; /* To fill up a single block, i.e. LAB5FS_BLOCK_SIZE, 1024 bytes in our
+case */
+};
+
+The second block contains a bitmap that represents used an unused inodes. This bitmap is used when
+allocating a new inode. Currently the bitmap relates one byte to one inode and therefore can keep
+track of 1024 inodes. The third block is a bitmap for used and unused data blocks. It can keep track
+of 1024 blocks.
+
+Blocks 3-130 are used by the inode table. The inode table is where each on-disk inode is saved. It
+supports 8 inodes per block and 1024 inodes total. Each new inode is saved to this part of the
+disk.
+
+The on-disk layout of an inode is a more complicated than the superblock. The inode structure
+includes the inode number, the mode of the inode, the id of the group/user owner, the size of the
+file, pointers to  blocks it uses, the number of links to the inode, and times to track access,
+modification, and creation. The structure can be seen below.
+
+/* LAB5 inode layout on disk, 128 bytes */
+struct lab5fs_inode {
+    uint16_t i_ino;     /* inode number*/
+    uint16_t i_mode;    /* File mode, __le16 */
+    uint16_t i_gid;     /* Low 16 bits of Group Id, __le16 */
+    uint16_t i_uid;     /* Low 16 bits of Owner Uid, __le16 */
+    uint32_t i_vtype;   /* type of inode, DIR or FILE */
+    uint32_t i_nlink;   /* Link_count, Number of active links to this inode */
+    uint32_t block_no;  /* Block number of inode */
+    uint32_t i_last_blk_offset; /* Offset of the data in the last block of this file/dir */
+    uint32_t i_atime;   /* Access time, __le32 */
+    uint32_t i_ctime;   /* Creation time, __le32 */
+    uint32_t i_mtime;   /* Modification time, __le32 */
+    uint32_t i_dtime;   /* Deletion Timem __le32 */
+    uint32_t i_block[LAB5FS_MAX_BLOCKS_PER_FILE];   /* Pointers to blocks, __le32 */
+    uint32_t i_padding[4];                          /* To make it align to 128-byte long */
+};
+
+Finally, the rest of the blocks are data blocks. For directories, a data block includes
+on-disk dentry's to persist which files are in the directory and their name. File data blocks are
+just the data corresponding to an inode. Each inode can be assigned up to 16 blocks of data.
+
+Directory entries on disk are simple and include the name of the file, the inode number. The
+structure can be seen below.
+/* can be used to represent a dir or file */
+struct lab5fs_direntry {
+    uint32_t inode;             /* Inode number */
+    uint16_t rec_len;           /* Actual Directory entry length, __le16*/
+    uint16_t name_len;          /* Name Length, __le16 */
+    uint8_t ftype;              /* File or DIR */
+    char name[LAB5FS_NAME_LEN]; /* File name */
+};
+
+In Memory
+Our in memory data structures are based on the in memory structures of the ext2 filesystem. The 
+direntry is the same data structure as the on-disk dentry for simplicity's sake. The in-memory 
+structures have the same names as the on-disk data structure but include a “_info” suffix.  
+Lab5fs_inode_info is the in memory inode and includes members such as the inode number, its type 
+(whether it is a file or directory), the number of blocks it is using, the block number the inode is 
+stored on, and an array of pointers to its data blocks. The inode_info structure is shown below.
+/* lab5fs inode data in memory
+ * based on ext2/ext2.h
+ */
+struct lab5fs_inode_info {
+	struct inode vfs_inode;
+	uint16_t i_ino;
+        uint32_t i_vtype;
+        uint32_t i_last_blk_offset;
+        uint32_t i_num_blocks;
+        uint32_t block_no; /* Block number of inode */
+        uint32_t i_block[LAB5FS_MAX_BLOCKS_PER_FILE];   /* Pointers to blocks, __le32 */
+};
+
+Our in-memory superblock structure includes members to make modification of inodes and blocks easier. 
+Lab5fs_sb_info includes the number of free blocks and inodes, the bitmaps for data blocks and inodes, 
+and pointers to the buffers containing the superblock, inode bitmap, and data block bitmap. The 
+superblock info structure can be seen below. 
+
+/* based on struct ext2_sb_info */
+struct lab5fs_sb_info {
+    unsigned long s_free_blocks;                    /* Number of free blocks */
+    unsigned long s_free_inodes;                    /* Number of free inodes */
+    unsigned long s_last_data_block;                /* Last block number */
+    struct lab5fs_data_block_bitmap *s_db_bitmap;    /* Bitmap for data block */
+    struct lab5fs_inode_bitmap *s_ino_bitmap;        /* Bitmap for inodes */
+    struct buffer_head * s_sbh;	        /* Buffer containing the super block */
+    struct buffer_head * s_bh_ino;	        /* Buffer containing the inode bitmap */
+    struct buffer_head * s_bh_db;	        /* Buffer containing the data block bitmap */
+
+    unsigned long s_frag_size;	        /* Size of a fragment in bytes */
+    unsigned long s_frags_per_block;    /* Number of fragments per block */
+    unsigned long s_inodes_per_block;   /* Number of inodes per block */
+    struct lab5fs_super_block * s_es;	/* Pointer to the super block in the buffer */
+    unsigned long  s_mount_opt;
+    uid_t s_resuid;
+    gid_t s_resgid;
+    unsigned short s_mount_state;
+    unsigned short s_pad;
+    int s_addr_per_block_bits;
+    int s_inode_size;
+    int s_first_ino;
+    spinlock_t s_next_gen_lock;
+    u32 s_next_generation;
+    unsigned long s_dir_count;
+    u8 *s_debts;
+    //struct percpu_counter s_dirs_counter;
+    //struct blockgroup_lock s_blockgroup_lock;
+};
+
+Limits of Filesystem
+Currently, we support maximum 1024 entries (file or directory), where each
+file can be maximum 16KB (i.e., across 16 blocks). The maximum number of inodes is 1024. Theoretically 
+there can be as 2^32 - 1 data blocks, however each file can only be 16KB, therefore only 16*1024 data 
+blocks will ever be used.
+
+
+

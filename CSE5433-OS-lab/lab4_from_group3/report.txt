@@ -1,0 +1,209 @@
+=================================================================
+CSE 5433 Operating System Lab
+
+Report of Lab4 - Checkpointing Memory Data of a Process 
+
+Authors: Eric Hemphill, Yi-Chun Chen and Ching-Hsiang Chu
+Email: {hemphill.39, chen.7508, chu.368}@osu.edu
+=================================================================
+
+=============================
+I) Basic Checkpointing Scheme
+=============================
+
+a) Design
+    To achieve a basic checkpoint scheme, we need to search the virtual
+memory area (VMA) and page table corresponding to the address range user
+specified, and 
+finally, extract the content, then write to a file.
+    To search the specific VMA object in the Linux kernel, there are two
+approaches: 1) walk through the
+linked-list of the VMA list, or 2) walk through the Red-Black tree of the
+VMAs. We chose the latter since it theoretically should provide better
+performance for the random search. While visiting each node in the RB tree, we
+check if the address of this VMA is greater than the user-specified address
+since the tree it built in a GROWSDOWN manner by default. As long as a VMA can
+be found, we then proceed to lookup the
+corresponding 'page' from the page table.
+    When a corresponding VMA and page are found, we can save the content of
+the user-specified memory range to a file. In the system call we developed, it
+returns an integer, which is basically a counter represents how many times the
+checkpoint is being called, and this can be used to identify the file begin
+written in this particular checkpoint call.
+ 
+b) Implementation
+    We implemented a system call 'cp_range' that takes two
+inputs: 'start_addr' and 'end_addr' to  indicate the address range that is going
+to be used to
+perform the checkpoint. Upon calling this system call, it saves the checkpoint
+content in a file at a fixed directory, '/root/lab4/cp_files'. Again, a
+counter is
+used to ensure no previous generated checkpoint files will be overwritten. 
+    
+    * Walkthrough VMA and Page Table
+        Inspired by the existing function 'get_user_page' in linux kernel, we
+developed a similar function called 'my_get_user_page' to achieve a similar
+but more naive implementation. 
+        First, we call 'find_extent_vma' to extract the
+vma object correspond to the address user specified. Inside 'find_extend_vma',
+it calls 'find_vma', which is basically walking through the RB tree of the vma
+ and searching a vma within the specified address. If a VMA cannot be found,
+which could happen if the user specified invalid memory address, we will exit
+gracefully without output. 
+        If VMA is found, we then walk through the page tables by using
+'follow_pages' function, which lookups a the page within the range of
+specified virtual addresses. 
+Finally, we return a page object if a valid one is found. 
+Note that it could be returning a zero page or 'NULL'.
+
+    * Output: In the system call, we first open the file using the API
+    * 'file_open'. Note that
+we need to set the file system accordingly as shown below. Similarly, it is
+also required for read/write file inside the kernel.
+    
+    oldfs = get_fs();
+    set_fs(get_ds());
+    file_open(...);
+    set_fs(oldfs);
+
+    To write the content of the page we found to a file; we need to use a
+virtual address. Here, we utilize the kernel function 'kmap' that returns the
+kernel
+virtual address for the given page. Finally, we can use 'vfs_write' to write
+the data into a file.
+
+    To simplify the implementation, we extract one page at a time in each
+iteration. If there are multiple 'pages', we will repeat the procedure and
+adjust the offset accordingly to ensure all the data is written to the file.
+
+c) Results
+    We wrote a test file to do the following.
+    1. Initialize an array of 8192 bytes to values of '1'
+    2. Perform the checkpoint
+    3. Modify the entire array to an array of '2'
+    4. Perform the checkpoint
+    5. Modify the last quarter of the array to '3'
+    6. Perform the checkpoint
+    7. Perform checkpoint for memory range 0-0xbbffffff
+
+    Running example:
+    
+    # ./lab4_test
+    [CP] Took a check point for buffer from addr 804a008, len 8192; Check file 'cp_12'
+    [CP] Took a check point for buffer from addr 804a008, len 8192; Check file 'cp_13'
+    [CP] Took a check point for buffer from addr 804a008, len 8192; Check file 'cp_14'
+    [CP] Took a check point for buffer from addr 0, len 3221225471; Check file 'cp_15'
+
+    # ll cp_files/
+    total 9760
+    ----------  1 root root    8192 Nov  3 13:35 cp_12
+    ----------  1 root root    8192 Nov  3 13:35 cp_13
+    ----------  1 root root    8192 Nov  3 13:35 cp_14
+    ----------  1 root root 9867263 Nov  3 13:35 cp_15
+    
+    As can be seen, we successfully save the content to the files. It is worth
+noting that a checkpoint for a large memory range in the last scenario may not
+be able to write all the content. This is because some portion of VMA or pages
+may not be valid.
+
+====================================
+II) Incremental Checkpointing Scheme
+====================================
+
+a) Design
+    Starting with the high level, the design of our incremental checkpointing
+is oriented around checksumming. Checksums 
+are normally used to ensure the integrity of files or blobs.  With our
+checkpointing scheme, checksums are used to quickly 
+determine if pages have been modified or not. When a page is checkpointed, the
+checksum of the page is calculated and 
+stored. The next time a page is checkpointed, the checksum is calculated again
+and compared to the checksum of the last 
+checkpoint.  If the checksums are not equal, the page is written to file.
+Otherwise, the page is not 
+written to file.  This process is repeated for any pages that are being
+checkpointed.
+
+b) Implementation
+    The main change in our implementation comes on the data structure of
+'page.'  We added a new field called 'checksum' with type 'unsigned long' to 
+maintain the up-to-date checksum value of the page. When a page is
+initialized, the value is equal to 0. When our system call for checkpointing
+is called, 
+the checksum of the data in a page is calculated using 'csum_partial()' from
+the 'asm/checksum.h' files. If the new checksum 
+value is different than the checksum stored in the page's checksum field, then
+the page is written to the checkpointing 
+file. After that, the new checksum value replaces the old checksum value in
+the page's checksum field. Since the pages 
+are kept in memory while the machine is running, we are certain that the
+checksum value will be persisted throughout the 
+life cycle of a process. 
+    Furthermore, we extended our system call to include a new parameter,
+'use_incr_cp', that indicates if the incremental checkpointing scheme is
+active or not. 
+Most of the checkpointing are the same for both cases, however, if
+'use_incr_cp' is set then the checksum is calculated and compared. Otherwise,
+the 
+content of pages is written to a file regardless of the value of checksum.
+Another incremental design is to ignore ZERO_PAGE.
+
+c) Discussion of Special Cases
+    This checkpointing scheme may run into problems in the case that checksum
+collisions 
+occur. A checksum collision occurs when the checksum of some data is equal to
+the checksum of some other data. However 
+the data is not the same. In the scenario that a page's data changes, but the
+checksum do not change, the page will not 
+be checkpointed.  However, not checkpointing the page is the incorrect
+behavior for an incremental checkpointing scheme. 
+Checksum collisions are not avoidable. The simplest way to handle checksum
+collisions is to reduce the change of a 
+collision happening. We did our best to avoid collisions by using built-in
+kernel checksumming algorithm.
+
+d) Results
+    Here, we extend the same test program used earlier to evaluate the
+incremental checkpoint scheme.
+    1. Initialize an array of 8192 bytes to values of '1'
+    2. Perform the checkpoint with the basic scheme
+    3. Perform the checkpoint with the incremental scheme
+
+    4. Modify the entire array to an array of '2'
+    5. Perform the checkpoint with the basic scheme
+    6. Perform the checkpoint with the incremental scheme
+    
+    7. Modify the last quarter of the array to '3'
+    8. Perform the checkpoint with the basic scheme
+    9. Perform the checkpoint with the incremental scheme
+    10. Perform checkpoint for memory range 0-0xbbffffff with the basic scheme
+    11. Perform checkpoint for memory range 0-0xbbffffff with the incremental
+scheme
+
+    Running example:
+    
+    # ./lab4_test
+    [CP] Took a check point for buffer from addr 804a008, len 8192; Check file 'cp_12'
+    [CP] Took a check point for buffer from addr 804a008, len 8192; Check file 'incr_cp_12'
+    [CP] Took a check point for buffer from addr 804a008, len 8192; Check file 'cp_13'
+    [CP] Took a check point for buffer from addr 804a008, len 8192; Check file 'incr_cp_13'
+    [CP] Took a check point for buffer from addr 804a008, len 8192; Check file 'cp_14'
+    [CP] Took a check point for buffer from addr 804a008, len 8192; Check file 'incr_cp_14'
+    [CP] Took a check point for buffer from addr 0, len 3221225471; Check file 'cp_15'
+    [CP] Took a check point for buffer from addr 0, len 3221225471; Check file 'incr_cp_15'
+
+    # ll cp_files/
+    total 9760
+    ----------  1 root root    8192 Nov  3 13:35 cp_12
+    ----------  1 root root    8192 Nov  3 13:35 cp_13
+    ----------  1 root root    8192 Nov  3 13:35 cp_14
+    ----------  1 root root 9867263 Nov  3 13:35 cp_15
+    ----------  1 root root    8192 Nov  3 13:35 incr_cp_12
+    ----------  1 root root    8192 Nov  3 13:35 incr_cp_13
+    ----------  1 root root    4096 Nov  3 13:35 incr_cp_14
+    ----------  1 root root   61439 Nov  3 13:35 incr_cp_15
+    
+    For the scenarios where not every page is modified, e.g., cp_14 and cp_15,
+we can see that incremental checkpoint scheme does not save everything to the
+files, and thus can significantly save storage space.
+

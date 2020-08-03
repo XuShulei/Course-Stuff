@@ -1,0 +1,90 @@
+4,8c4,5
+< # Possible k to be evaluated, 10 iterations for each
+< #all_k = c(2, 5, 6, 8, 10, 12, 15, 20, 50)
+< all_k = c(10, 15)
+< nit=3
+< # how many different classes in the dataset
+---
+> all_k = c(100) #c(2, 5, 6, 8, 10, 12, 15, 20, 50)
+> nit=10
+11d7
+< # Add a column to store the cluster number for k-means algorithm
+14d9
+< # Add a column to store the predict class for testing data
+16d10
+< # Store error rate, avg, standard deviation for each k
+21,25d14
+< print("Plotting actual training set to 'TraningData_ActualCalss.pdf'")
+< pdf("TraningData_ActualCalss.pdf", width=10, height=10, paper="special", onefile=F)
+< plot(traning$V2, traning$V3, col=(traning$V1 + 10), pch =(traning$V1 + 10) )
+< dev.off()
+< 
+27,29d15
+<   print("==================================================")
+<   print(paste("Running kNN clustering, k=",k))
+<   print("==================================================")
+39c25
+<     print(paste("----------Iteration ", it, " for k = ", k, "----------", sep = "" ))
+---
+>     plot(traning$V2, traning$V3, col=(traning$V1 + 10))
+42c28
+<     # Randomly select from the traning dataset as the initial centroids for k-means algorithm 
+---
+>     #Randomly select from the traning dataset 
+44c30
+<     # Stop if it is converged (centroids are fixed) or 100 runs
+---
+>     # Stop if it is converged or 100 runs
+53d38
+<       # Update centroids
+63,66c48,49
+<     #print(paste("Plotting prediceted training set to 'TraningData_PredictedCalss_k_", k,".pdf'", sep = ""))
+<     #pdf(paste("TraningData_PredictedCalss_k_", k,".pdf", sep = ""), width=10, height=10, paper="special", onefile=F)
+<     #plot(traning$V2, traning$V3, col=(traning$cluster +10), pch = (traning$cluster +10))
+<     #dev.off()
+---
+>     x
+>     plot(traning$V2, traning$V3, col=(traning$cluster +10))
+80,83d62
+<     print("P(V|C)")
+<     print(pvc_traning)
+<     print("P(C)")
+<     print(pc)
+88c67
+<       # Just tagging 
+---
+>       # Directly calculate P(C|V), just used to confirm the answer 
+89a69,71
+>       #for (j in 0:(cl-1)) {
+>       #  pvc_traning[i, (j+2)] = length(which(traning[which(traning$cluster == i), 1] == j)) / length(which(traning$cluster == i))
+>       #}
+92c74
+<     # For test set, find the closest k-mean cluster for each sample
+---
+>     # For test set, find the closest k-mean centroid for each sample
+101c83,84
+<     pcv_testing = matrix(, length(unique(traning$V1)), (k+1), dimnames = list(NULL, c("C", paste("V",seq(1,k), sep = ''))))
+---
+>     pcv_testing = matrix(, length(unique(traning$V1)), (k+1))
+>     colnames(pcv_testing) = c("C", paste("V",seq(1,k), sep = ''))
+105d87
+<         # P(V|C) P(C) / P(V)
+109c91
+<     # Predict test set based on P(C|V)
+---
+>     # Predict test set
+113d94
+<     # Check error rate
+117c98
+<   exe_time[as.character(k), "Time"] = (end.time - start.time) / nit
+---
+>   exe_time[as.character(k), "Time"] = (end.time - start.time)
+121,126d101
+<   print("--------------------Average Erro Rate----------------------------")
+<   print(avg_and_sd[as.character(k), "Avg"])
+<   print("--------------------Standard deviation of Erro Rate--------------")
+<   print(avg_and_sd[as.character(k), "SD"])
+<   print("--------------------Average Execution Time ----------------------")
+<   print(exe_time[as.character(k), "Time"])
+127a103
+> exe_time

@@ -1,0 +1,195 @@
+=================================================================
+CSE 5433 Operating System Lab
+
+Report of Lab5 - Filesystem
+
+Authors:, Ching-Hsiang Chu, Yi-Chun Chen and Eric Hemphill
+Email: {chu.368, chen.7508, hemphill.39}@osu.edu
+=================================================================
+
+=== QUICK USAGE ===
+
+1: patch up the code to a default linux 2.6.9 source code
+
+$> patch lab5.diff -p1 > /path/to/linux-2.6.9
+
+2: Compile and install
+
+$> make menuconfig
+$> make ; make modules ; make modules_install ; make install
+
+3: Test the program by using the provided script
+
+$> sh runTest.sh
+
+============================================
+I) Disk layout and in-memory data structure
+============================================
+
+Before implementing the filesystem, we first design the disk layout, which is similar to Ext2, as the follows. Since we are utilizing loop device, so the filesystem is consist of multiple blocks, where each block is 1024 bytes in our case.
+
+---------------------------------------------
+Block 0: unused
+---------------------------------------------
+Block 1: Superblock
+---------------------------------------------
+Block 2: Inode bitmap
+---------------------------------------------
+Block 3: Data-block bitmap
+---------------------------------------------
+Block 4-131: Inode Table (8 inodes per block, across 128 blocks)
+---------------------------------------------
+Block 132+: Data blocks (dentry, data...)
+--------------------------------------------- 
+
+Here, we leave the first block for boot-sector usage. However, we did not do anything about it. Next, block one is the superblock. The super block data structure is defined as follow.
+
+/* LAB5 superblock layout on disk */
+struct lab5fs_sb {
+    uint32_t s_inodes_count;
+    uint32_t s_blocks_count;
+    uint32_t s_free_blocks_count;
+    uint32_t s_free_inodes_count;
+    uint32_t s_first_data_block;
+    uint32_t s_last_data_block;
+    uint32_t s_block_size;
+    uint32_t s_magic;
+    uint32_t padding[248];
+};
+
+Here, 32-bit integers that represent total inode count (s_inodes_count), the total block count (s_blocks_count), number of free blocks count (s_free_blocks_count), number of free inodes count (s_free_inodes_count), the index of the first data block (s_first_data_block), the index of the last data block (s_last_data_block), the block
+size in bytes (s_block_size), a magic number (s_magic) to identify this filesystem, and padding to make the structure fill a
+whole block. 
+
+Block 2 contains a bitmap that represents the status of inodes (used or unused). This bitmap is used when
+allocating and destroy a new inode, in another word, create or remove a file/directory. With this information, it helps us quickly identify a free inode in the inode table to be used. Currently, the bitmap relates one byte to one inode and therefore can keep
+track of 1024 inodes. Similarly,  block 3 is a bitmap for used and unused data blocks. It can keep track of 1024 blocks.
+
+Blocks 4-130 are used by the inode table because each Inode is 128 bytes and we support 1024 inodes. This inode table is meant to record all the changes of inode-related information in the disk, so we keep the consistent status next time we mount the disk. As shown below, the inode structure includes the inode number (i_ino), the mode of the inode (i_mode), the id of the group/user owner (i_gid, i_uid), the size of the
+file (i_size), the type of the inode (i_vtype), pointers to blocks it uses (i_block[LAB5FS_MAX_BLOCKS_PER_FILE]), the number of links to the inode (i_nlink), and times to track access,
+modification, and creation (i_atime, i_ctime, i_mtime). Each inode can be assigned up to 16 blocks of data, which means a single file can be maximum 16KB, however, it can be easily adjusted.
+
+/* LAB5 inode layout on disk, 128 bytes */
+struct lab5fs_inode {
+    uint16_t i_ino;     /* inode number*/
+    uint16_t i_mode;    /* File mode, __le16 */
+    uint16_t i_gid;     /* Low 16 bits of Group Id, __le16 */
+    uint16_t i_uid;     /* Low 16 bits of Owner Uid, __le16 */
+    uint32_t i_size;    /* Size in bytes */
+    uint32_t i_vtype;   /* type of inode, DIR or FILE */
+    uint32_t i_nlink;   /* Link_count, Number of active links to this inode */
+    uint32_t i_atime;   /* Access time, __le32 */
+    uint32_t i_ctime;   /* Creation time, __le32 */
+    uint32_t i_mtime;   /* Modification time, __le32 */
+    uint32_t i_block[LAB5FS_MAX_BLOCKS_PER_FILE];   /* Pointers to blocks, __le32 */
+    uint32_t i_padding[4];                          /* To make it align to 128-byte long */
+};
+
+Finally, the rest of the blocks are data blocks. For directories, a data block includes
+on-disk 'dentry' to persist which files or directories are in a directory and their name. File data blocks are
+just the data corresponding to an inode. 
+
+Directory entries on disk are simple and include the corresponding inode number (inode), actual length of the entry (rec_len), the length of the file name (name_len), the ftype of the entry (dtype, file or directory) the name of the file (name). The
+structure can be seen below.
+/* can be used to represent a dir or file */
+struct lab5fs_direntry {
+    uint32_t inode;             /* Inode number */
+    uint16_t rec_len;           /* Actual Directory entry length, __le16*/
+    uint16_t name_len;          /* Name Length, __le16 */
+    uint8_t ftype;              /* File or DIR */
+    char name[LAB5FS_NAME_LEN]; /* File name */
+};
+
+Our in-memory data structures are based on the in-memory structures of the ext2 filesystem. The 
+direntry is the same data structure as the on-disk dentry for simplicity's sake. The in-memory 
+structures have the same names as the on-disk data structure but include a “_info” suffix.  
+Lab5fs_inode_info is the in-memory inode and includes members such as the inode number, its type 
+(whether it is a file or directory), the number of blocks it is using, the block number the inode is stored on, and an array of pointers to its data blocks. The inode_info structure is shown below.
+
+struct lab5fs_inode_info {
+    struct inode vfs_inode;
+    uint16_t i_ino;
+        uint32_t i_vtype;
+        uint32_t i_last_blk_offset;
+        uint32_t i_num_blocks;
+        uint32_t block_no; /* Block number of inode */
+        uint32_t i_block[LAB5FS_MAX_BLOCKS_PER_FILE];   /* Pointers to blocks, __le32 */
+};
+
+Our in-memory superblock structure includes members to make the modification of inodes and blocks easier. 
+Lab5fs_sb_info includes the number of free blocks and inodes, the bitmaps for data blocks and inodes, 
+and pointers to the buffers containing the superblock, inode bitmap, and data block bitmap. The superblock info structure can be seen below. 
+
+/* based on struct ext2_sb_info */
+struct lab5fs_sb_info {
+    unsigned long s_free_blocks;                    /* Number of free blocks */
+    unsigned long s_free_inodes;                    /* Number of free inodes */
+    unsigned long s_last_data_block;                /* Last block number */
+    struct lab5fs_data_block_bitmap *s_db_bitmap;    /* Bitmap for data block */
+    struct lab5fs_inode_bitmap *s_ino_bitmap;        /* Bitmap for inodes */
+    struct buffer_head * s_sbh;            /* Buffer containing the super block */
+    struct buffer_head * s_bh_ino;            /* Buffer containing the inode bitmap */
+    struct buffer_head * s_bh_db;            /* Buffer containing the data block bitmap */
+};
+
+==========================
+II) Implementation
+==========================
+
+To implement a basic and working filesystem, we follow five milestones as hinted in the class. We report the detailed steps as follows.
+
+a) Formatting the file system
+The first step to making a usable filesystem is to be able to format a disk to be that type of filesystem. We created a user program called 'mkfslab5' that writes the necessary data structures, as described in part I, to the disk (i.e., image file). The user program starts by initializing the essential data structures such as the superblock, the inode and block bitmaps, an indoe table where an inode is initialized as the root while others remain empty, and a directory entry ('direntry') for the root inode. The program writes each data structure in the order that is designed as shown above. The writing is done using the write() system call. 
+
+b) Module
+To make our filesystem as a module to the linux, we need to implement our functions for 'module_init()' and 'module_exit()'. During module initialization, we use 'register_filesystem(&lab5fs_fs_type)' to register our filesystem, so kernel can recognize and know what to do when the filesystem is used later. 'lab5fs_fs_type' is defined as follow.
+
+static struct file_system_type lab5fs_fs_type = {
+       .owner          = THIS_MODULE,
+       .name           = "lab5fs",
+       .get_sb         = lab5fs_get_sb,
+       .kill_sb        = kill_block_super,
+        .fs_flags      = FS_REQUIRES_DEV,
+};
+
+During module exit, we simply do 'unregister_filesystem(&lab5fs_fs_type)'. Note that we are also using a cache for inode, which is learn from bfs and ext2/3 filesystem, therefore, so we perform init_inodecache() and destroy_inodecache() as well.
+
+c) Mount/Unmount
+A crucial part of mounting a filesystem is the get_sb() function. The get_sb() function should return a 
+pointer to a superblock containing information about the device. Our get_sb() function, 'lab5fs_get_sb', uses sb_bread() 
+to read corresponding block from the device and initialize a superblock object. The superblock object is filled with information about free inodes and blocks, and is initialized with pointers to buffers containing the inode and block bitmap. Additionally, the root inode is read from disk and initialized in the directory cache (dcache), through 'd_alloc_root()'. 
+
+During the unmount process, 'kill_block_super' will be called. Specifically, in-memory data will be written back to the disk through 'lab5fs_write_super' and 'lab5fs_write_inode' to preserve the filesystem status. Finally, 'lab5fs_put_super' will free all the in-memory resources we have used, e.g., buffer head of superblock and bitmaps.
+
+d) Directory operations
+
+In this lab, we have implemented following operations: lookup, create, link, unlink, mkdir. These allow us to perform following commands: cd, ls, link, unlink, mkdir, rm, touch, etc.
+
+(1) Lookup:
+Directory lookup operation plays a vital role in all directory operations. Basically, lookup function (lab5fs_lookup) search the given file name under given directory in the data block. If there is a match, a valid inode will be associated to the given dentry through 'd_add()'. Otherwise, a NULL inode is associated. In this way, the kernel can quickly figure out the cache to know if the given file exists or not.
+
+(2) File/directory creation:
+First, allocating blocks and inodes is a very important process here. When the OS calls to create a 
+file, the filesystem needs to respond with a new inode and place to store that inode on the disk. 
+Additionally, if there isn’t enough room on the disk, the filesystem should let the user know. The inode and blocks bitmaps are crucial to quickly allocating blocks and inodes. When the OS calls for a 
+new inode, an inode is initialized in memory using lab5fs_new_inode(). The new inode is assigned a 
+unique inode number by scanning the inode bitmap and finding an index which is not taken. The inode 
+bitmap and inode table are updated, and their buffers marked as dirty so that they will be written back to 
+the disk. A similar process used to allocate blocks. When a file needs another data block, the data 
+block bitmap is scanned, updated, and the index of the first blank entry is returned. The inode then 
+has access to that block to store its data.  When inodes are released, the inode tables and data blocks 
+are written to disk, and the in-memory inodes are released from memory. Once a new inode is allocated and assigned, we then create a new entry in the current directory's data block.
+
+(3) Linking and Unlinking
+In memory and on disk inodes include a member called i_nlink which keeps track of the number of references to the inode. When a new link is established, the i_nlink of the inode is incremented, and a 
+new dentry is created for the link. Unlinking is a similar process. When a file is unlinked, the dentry is erased, and the i_nlink counter is decremented. 
+
+e) Read/write file
+
+Since we have not implemented our own file operations, all we need to do is to define specific address space operations to allow OS kernel know where to perform the generic file operations. In 'lab5fs_get_block', we translate the logical block to the physical block position in our disk layout.
+
+f) Limitations of Filesystem
+Currently, we support maximum 1024 entries (file or directory), where each file can be maximum 16KB (i.e., across 16 non-contiguous blocks). Theoretically, there can be as 2^32 - 1 data blocks, however, each file can only be 16KB. Therefore only 16*1024 data 
+blocks will ever be used. Nevertheless, these limits can be easily adjusted by update the header file 'lab5fs.h'.
+
+*Known issue of preserving filesystem status: Currently, after we perform several operations to the files, unmount and mount it back, the block of inode table seems to be corrupted. It might be caused by some bugs in the write back function of inode while unmount the filesystem, however, we are not able to fix it before the deadline.
