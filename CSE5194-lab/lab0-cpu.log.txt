@@ -1,0 +1,60 @@
+INFO:tensorflow:Using default config.
+WARNING:tensorflow:Using temporary folder as model directory: /tmp/pbstmp.3843960/tmplx120233
+INFO:tensorflow:Using config: {'_model_dir': '/tmp/pbstmp.3843960/tmplx120233', '_tf_random_seed': None, '_save_summary_steps': 100, '_save_checkpoints_steps': None, '_save_checkpoints_secs': 600, '_session_config': None, '_keep_checkpoint_max': 5, '_keep_checkpoint_every_n_hours': 10000, '_log_step_count_steps': 100, '_train_distribute': None, '_device_fn': None, '_service': None, '_cluster_spec': <tensorflow.python.training.server_lib.ClusterSpec object at 0x2b3354d90828>, '_task_type': 'worker', '_task_id': 0, '_global_id_in_cluster': 0, '_master': '', '_evaluation_master': '', '_is_chief': True, '_num_ps_replicas': 0, '_num_worker_replicas': 1}
+INFO:tensorflow:Calling model_fn.
+INFO:tensorflow:Done calling model_fn.
+INFO:tensorflow:Create CheckpointSaverHook.
+INFO:tensorflow:Graph was finalized.
+2018-09-24 10:03:02.424928: I tensorflow/core/platform/cpu_feature_guard.cc:141] Your CPU supports instructions that this TensorFlow binary was not compiled to use: AVX2 FMA
+2018-09-24 10:03:02.476005: E tensorflow/stream_executor/cuda/cuda_driver.cc:397] failed call to cuInit: CUDA_ERROR_UNKNOWN
+2018-09-24 10:03:02.476061: I tensorflow/stream_executor/cuda/cuda_diagnostics.cc:150] kernel driver does not appear to be running on this host (o0593.ten.osc.edu): /proc/driver/nvidia/version does not exist
+INFO:tensorflow:Running local_init_op.
+INFO:tensorflow:Done running local_init_op.
+INFO:tensorflow:Saving checkpoints for 0 into /tmp/pbstmp.3843960/tmplx120233/model.ckpt.
+INFO:tensorflow:loss = 152.5339, step = 1
+INFO:tensorflow:global_step/sec: 455.988
+INFO:tensorflow:loss = 17.61446, step = 101 (0.220 sec)
+INFO:tensorflow:global_step/sec: 716.217
+INFO:tensorflow:loss = 12.092828, step = 201 (0.140 sec)
+INFO:tensorflow:global_step/sec: 808.422
+INFO:tensorflow:loss = 7.2718334, step = 301 (0.124 sec)
+INFO:tensorflow:global_step/sec: 850.166
+INFO:tensorflow:loss = 5.5158505, step = 401 (0.118 sec)
+INFO:tensorflow:global_step/sec: 852.726
+INFO:tensorflow:loss = 9.169918, step = 501 (0.117 sec)
+INFO:tensorflow:global_step/sec: 848.158
+INFO:tensorflow:loss = 6.88581, step = 601 (0.118 sec)
+INFO:tensorflow:global_step/sec: 829.602
+INFO:tensorflow:loss = 6.3690114, step = 701 (0.120 sec)
+INFO:tensorflow:global_step/sec: 825.087
+INFO:tensorflow:loss = 5.7625585, step = 801 (0.121 sec)
+INFO:tensorflow:global_step/sec: 841.63
+INFO:tensorflow:loss = 5.1157265, step = 901 (0.119 sec)
+INFO:tensorflow:Saving checkpoints for 1000 into /tmp/pbstmp.3843960/tmplx120233/model.ckpt.
+INFO:tensorflow:Loss for final step: 5.6368475.
+INFO:tensorflow:Calling model_fn.
+INFO:tensorflow:Done calling model_fn.
+INFO:tensorflow:Starting evaluation at 2018-09-24-14:03:04
+INFO:tensorflow:Graph was finalized.
+INFO:tensorflow:Restoring parameters from /tmp/pbstmp.3843960/tmplx120233/model.ckpt-1000
+INFO:tensorflow:Running local_init_op.
+INFO:tensorflow:Done running local_init_op.
+INFO:tensorflow:Finished evaluation at 2018-09-24-14:03:04
+INFO:tensorflow:Saving dict for global step 1000: accuracy = 0.93333334, average_loss = 0.056682006, global_step = 1000, loss = 1.7004602
+INFO:tensorflow:Saving 'checkpoint_path' summary for global step 1000: /tmp/pbstmp.3843960/tmplx120233/model.ckpt-1000
+
+Test set accuracy: 0.933
+
+INFO:tensorflow:Calling model_fn.
+INFO:tensorflow:Done calling model_fn.
+INFO:tensorflow:Graph was finalized.
+INFO:tensorflow:Restoring parameters from /tmp/pbstmp.3843960/tmplx120233/model.ckpt-1000
+INFO:tensorflow:Running local_init_op.
+INFO:tensorflow:Done running local_init_op.
+
+Prediction is "Setosa" (99.5%), expected "Setosa"
+
+Prediction is "Versicolor" (99.8%), expected "Versicolor"
+
+Prediction is "Virginica" (97.2%), expected "Virginica"
+

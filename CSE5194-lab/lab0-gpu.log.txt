@@ -1,0 +1,77 @@
+INFO:tensorflow:Using default config.
+WARNING:tensorflow:Using temporary folder as model directory: /tmp/pbstmp.3843823/tmpqhrnhxhu
+INFO:tensorflow:Using config: {'_model_dir': '/tmp/pbstmp.3843823/tmpqhrnhxhu', '_tf_random_seed': None, '_save_summary_steps': 100, '_save_checkpoints_steps': None, '_save_checkpoints_secs': 600, '_session_config': None, '_keep_checkpoint_max': 5, '_keep_checkpoint_every_n_hours': 10000, '_log_step_count_steps': 100, '_train_distribute': None, '_device_fn': None, '_service': None, '_cluster_spec': <tensorflow.python.training.server_lib.ClusterSpec object at 0x2ae8d21d0860>, '_task_type': 'worker', '_task_id': 0, '_global_id_in_cluster': 0, '_master': '', '_evaluation_master': '', '_is_chief': True, '_num_ps_replicas': 0, '_num_worker_replicas': 1}
+INFO:tensorflow:Calling model_fn.
+INFO:tensorflow:Done calling model_fn.
+INFO:tensorflow:Create CheckpointSaverHook.
+INFO:tensorflow:Graph was finalized.
+2018-09-24 10:00:28.133939: I tensorflow/core/platform/cpu_feature_guard.cc:141] Your CPU supports instructions that this TensorFlow binary was not compiled to use: AVX2 FMA
+2018-09-24 10:00:28.284091: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1405] Found device 0 with properties: 
+name: Tesla P100-PCIE-16GB major: 6 minor: 0 memoryClockRate(GHz): 1.3285
+pciBusID: 0000:04:00.0
+totalMemory: 15.90GiB freeMemory: 15.61GiB
+2018-09-24 10:00:28.284179: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1484] Adding visible gpu devices: 0
+2018-09-24 10:00:38.307710: I tensorflow/core/common_runtime/gpu/gpu_device.cc:965] Device interconnect StreamExecutor with strength 1 edge matrix:
+2018-09-24 10:00:38.309128: I tensorflow/core/common_runtime/gpu/gpu_device.cc:971]      0 
+2018-09-24 10:00:38.309169: I tensorflow/core/common_runtime/gpu/gpu_device.cc:984] 0:   N 
+2018-09-24 10:00:38.309966: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1097] Created TensorFlow device (/job:localhost/replica:0/task:0/device:GPU:0 with 15127 MB memory) -> physical GPU (device: 0, name: Tesla P100-PCIE-16GB, pci bus id: 0000:04:00.0, compute capability: 6.0)
+INFO:tensorflow:Running local_init_op.
+INFO:tensorflow:Done running local_init_op.
+INFO:tensorflow:Saving checkpoints for 0 into /tmp/pbstmp.3843823/tmpqhrnhxhu/model.ckpt.
+INFO:tensorflow:loss = 104.22104, step = 0
+INFO:tensorflow:global_step/sec: 370.594
+INFO:tensorflow:loss = 21.525896, step = 100 (0.269 sec)
+INFO:tensorflow:global_step/sec: 689.204
+INFO:tensorflow:loss = 13.919346, step = 200 (0.145 sec)
+INFO:tensorflow:global_step/sec: 687.547
+INFO:tensorflow:loss = 5.44365, step = 300 (0.145 sec)
+INFO:tensorflow:global_step/sec: 681.211
+INFO:tensorflow:loss = 8.932229, step = 400 (0.147 sec)
+INFO:tensorflow:global_step/sec: 681.422
+INFO:tensorflow:loss = 4.637166, step = 500 (0.147 sec)
+INFO:tensorflow:global_step/sec: 680.724
+INFO:tensorflow:loss = 6.3875294, step = 600 (0.147 sec)
+INFO:tensorflow:global_step/sec: 679.015
+INFO:tensorflow:loss = 7.311301, step = 700 (0.147 sec)
+INFO:tensorflow:global_step/sec: 688.11
+INFO:tensorflow:loss = 6.7185497, step = 800 (0.145 sec)
+INFO:tensorflow:global_step/sec: 679.289
+INFO:tensorflow:loss = 4.7001414, step = 900 (0.147 sec)
+INFO:tensorflow:Saving checkpoints for 1000 into /tmp/pbstmp.3843823/tmpqhrnhxhu/model.ckpt.
+INFO:tensorflow:Loss for final step: 6.598465.
+INFO:tensorflow:Calling model_fn.
+INFO:tensorflow:Done calling model_fn.
+INFO:tensorflow:Starting evaluation at 2018-09-24-14:00:42
+INFO:tensorflow:Graph was finalized.
+2018-09-24 10:00:42.402267: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1484] Adding visible gpu devices: 0
+2018-09-24 10:00:42.402328: I tensorflow/core/common_runtime/gpu/gpu_device.cc:965] Device interconnect StreamExecutor with strength 1 edge matrix:
+2018-09-24 10:00:42.402347: I tensorflow/core/common_runtime/gpu/gpu_device.cc:971]      0 
+2018-09-24 10:00:42.402360: I tensorflow/core/common_runtime/gpu/gpu_device.cc:984] 0:   N 
+2018-09-24 10:00:42.402505: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1097] Created TensorFlow device (/job:localhost/replica:0/task:0/device:GPU:0 with 15127 MB memory) -> physical GPU (device: 0, name: Tesla P100-PCIE-16GB, pci bus id: 0000:04:00.0, compute capability: 6.0)
+INFO:tensorflow:Restoring parameters from /tmp/pbstmp.3843823/tmpqhrnhxhu/model.ckpt-1000
+INFO:tensorflow:Running local_init_op.
+INFO:tensorflow:Done running local_init_op.
+INFO:tensorflow:Finished evaluation at 2018-09-24-14:00:42
+INFO:tensorflow:Saving dict for global step 1000: accuracy = 0.96666664, average_loss = 0.058843296, global_step = 1000, loss = 1.7652988
+INFO:tensorflow:Saving 'checkpoint_path' summary for global step 1000: /tmp/pbstmp.3843823/tmpqhrnhxhu/model.ckpt-1000
+
+Test set accuracy: 0.967
+
+INFO:tensorflow:Calling model_fn.
+INFO:tensorflow:Done calling model_fn.
+INFO:tensorflow:Graph was finalized.
+2018-09-24 10:00:42.775616: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1484] Adding visible gpu devices: 0
+2018-09-24 10:00:42.775706: I tensorflow/core/common_runtime/gpu/gpu_device.cc:965] Device interconnect StreamExecutor with strength 1 edge matrix:
+2018-09-24 10:00:42.775726: I tensorflow/core/common_runtime/gpu/gpu_device.cc:971]      0 
+2018-09-24 10:00:42.775740: I tensorflow/core/common_runtime/gpu/gpu_device.cc:984] 0:   N 
+2018-09-24 10:00:42.775874: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1097] Created TensorFlow device (/job:localhost/replica:0/task:0/device:GPU:0 with 15127 MB memory) -> physical GPU (device: 0, name: Tesla P100-PCIE-16GB, pci bus id: 0000:04:00.0, compute capability: 6.0)
+INFO:tensorflow:Restoring parameters from /tmp/pbstmp.3843823/tmpqhrnhxhu/model.ckpt-1000
+INFO:tensorflow:Running local_init_op.
+INFO:tensorflow:Done running local_init_op.
+
+Prediction is "Setosa" (100.0%), expected "Setosa"
+
+Prediction is "Versicolor" (99.8%), expected "Versicolor"
+
+Prediction is "Virginica" (97.4%), expected "Virginica"
+

@@ -1,0 +1,9 @@
+#!/bin/sh
+#PBS -N word2vec
+#PBS -l walltime=23:59:00
+#PBS -l nodes=1:ppn=24
+#PBS -j oe
+#PBS -A PAS1419
+cd $PBS_O_WORKDIR
+source activate py36
+time ./main.py --train ${input_file_name}  --output ${output_file_name}  --cbow ${model} --size 300 --window 5 --sample 1e-4 --negative 5 --min_count 50 --processes ${num_process} --iter 1 --batch_size ${batch_size}
